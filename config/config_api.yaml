@@ -1,0 +1,92 @@
+# API配置
+api:
+  base_url: "https://10.21.19.99:8686"
+  endpoint: "/maxs/asset/manage/getDetailById"
+  vuln_endpoint: "/maxs/asset/vuln/pageAssetDetail"
+  alert_endpoint: "/maxs/rv/alarm/pageAlarm"
+  event_endpoint: "/maxs/rv/event/pageEvent"
+  method: "POST"
+  timeout: 30
+
+# 请求头配置
+headers:
+  Accept: "*/*"
+  Accept-Encoding: "gzip, deflate, br, zstd"
+  Accept-Language: "zh-CN,zh;q=0.9,en;q=0.8"
+  Cache-Control: "no-cache"
+  Content-Type: "application/json"
+  Referer: "https://10.21.19.99:8686/maxPage/assetManageView"
+  User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+
+# Cookie认证
+cookie: "INGRESSCOOKIE=1778032721.797.2757.434619|6d68494450b64a9a8ae26e05f98c7f92; ssa_jwt=eyJhbGciOiJSUzI1NiJ9.eyJpYXQiOjE3Nzg1NDkyMjgsImp0aSI6IjIwNTQwMTA0NTM1MTgyMjk1MDYiLCJ0b2tlblRpbWVvdXQiOjE4MDAsInR5cGUiOiJicm93c2VyIiwic3ViIjoiLTEiLCJwbGF0Zm9ybU1nIjowLCJ0ZW5hbnRJZCI6LTEsInVzZXJuYW1lIjoiYWRtaW4iLCJuYW1lIjoiYWRtaW4iLCJ1c2VyX3R5cGUiOjF9.P8kSois8gWedmIF9MnEnYpMhC2CD9F3g10yZW7o5MhJpK8pV3k14yWtBdUDdJiHIVPksCMDmkwKVo9UO_8lk5Kpr6L_07e119MIDVp2GT5Cmx5B2saJRxcCRuC0ArrysbLlJCK4sxESohwpSYYjz07HsbFpgrgcGpn6jjOrOJ61vJlSEMDGrUHKxWY0kI86Uhzh1mXL5cOmg--8x50bVRum6q9A3edjzC1Y9TaBIF7m51PBJH3DVDxjMalIljDFYaLXcypXSfni4J8asG91vbCBmPZrEwDCRGbSQ-LfN_LD85bB6R2ck4b8TrAhJgNeNWLA3-WPJTgb6x0Pq-9AwfA"
+
+# 资产字段映射配置
+field_mapping:
+  asset_id:
+    - "ASSET_ID"
+    - "assetId"
+    - "asset_id"
+    - "id"
+  ip_address:
+    - "IP"
+    - "ip"
+    - "ipAddress"
+    - "ip_address"
+    - "hostIp"
+  mac_address:
+    - "MAC"
+    - "mac"
+    - "macAddress"
+    - "mac_address"
+  hostname:
+    - "HOST_NAME"
+    - "hostname"
+    - "hostName"
+    - "name"
+  asset_type:
+    - "ASSET_TYPE$NAME"
+    - "assetType"
+    - "ASSET_TYPE"
+    - "type"
+  asset_level:
+    - "ASSET_LEVEL$NAME"
+    - "assetLevel"
+    - "ASSET_LEVEL"
+    - "level"
+  asset_status_name:
+    - "ASSET_STATUS$NAME"
+    - "assetStatus"
+    - "ASSET_STATUS"
+  os_name:
+    - "OS_NAME"
+    - "OS"
+    - "os"
+    - "osName"
+  organization:
+    - "ORG_ID$NAME"
+    - "ORGANIZATION"
+    - "orgName"
+    - "组织"
+  is_exposed:
+    - "IS_EXPOSURE$NAME"
+    - "IS_EXPOSED"
+    - "exposed"
+    - "外网暴露"
+  last_online_time:
+    - "LAST_ONLINE_TIME"
+    - "lastLoginTime"
+    - "last_online_time"
+    - "onlineTime"
+  risk_level:
+    - "RISK_LEVEL"
+    - "riskLevel"
+    - "risk_level"
+  risk_score:
+    - "RISK_SCORE"
+    - "riskScore"
+    - "risk_score"
+
+# 测试资产ID列表
+test_assets:
+  - "2016345500103778306"

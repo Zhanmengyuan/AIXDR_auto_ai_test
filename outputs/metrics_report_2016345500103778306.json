@@ -1,0 +1,232 @@
+{
+  "asset_id": "2016345500103778306",
+  "timestamp": "2026-05-12 10:19:37",
+  "total_score": 65.0,
+  "max_score": 65,
+  "pass_rate": 1.0,
+  "metrics": [
+    {
+      "name": "risk_level_accuracy",
+      "cn_name": "风险等级准确率",
+      "score": 20.0,
+      "max_score": 20,
+      "accuracy": 1.0,
+      "is_passed": true,
+      "detail": {
+        "ai_risk": "严重",
+        "api_risk": "严重",
+        "ai_risk_normalized": "严重",
+        "api_risk_normalized": "严重",
+        "is_match": true
+      }
+    },
+    {
+      "name": "risk_score_accuracy",
+      "cn_name": "资产风险评分准确率",
+      "score": 10.0,
+      "max_score": 10,
+      "accuracy": 1.0,
+      "is_passed": true,
+      "detail": {
+        "ai_score": 57,
+        "api_score": 57,
+        "error": 0,
+        "threshold": 5
+      }
+    },
+    {
+      "name": "field_completeness",
+      "cn_name": "资产关键字段完整率",
+      "score": 10.0,
+      "max_score": 10,
+      "accuracy": 1.0,
+      "is_passed": true,
+      "detail": {
+        "total_fields": 10,
+        "identified": 10,
+        "correct": 9,
+        "missing": 0,
+        "identified_fields": [
+          "asset_id",
+          "ip_address",
+          "mac_address",
+          "hostname",
+          "asset_type",
+          "asset_level",
+          "os_name",
+          "organization",
+          "is_exposed",
+          "last_online_time"
+        ],
+        "correct_fields": [
+          "asset_id",
+          "ip_address",
+          "mac_address",
+          "hostname",
+          "asset_type",
+          "asset_level",
+          "os_name",
+          "organization",
+          "is_exposed"
+        ],
+        "missing_fields": []
+      }
+    },
+    {
+      "name": "vuln_accuracy",
+      "cn_name": "漏洞列表准确率",
+      "score": 10.0,
+      "max_score": 10,
+      "accuracy": 1.0,
+      "is_passed": true,
+      "detail": {
+        "ai_count": 4,
+        "api_count": 28,
+        "matched": 4,
+        "error": 0,
+        "matched_vulns": [
+          "AVE-2025-553200",
+          "AVE-2025-550293",
+          "AVE-2025-569248",
+          "AVE-2025-551588"
+        ],
+        "extra_vulns": [],
+        "ai_vulns": [
+          "AVE-2025-553200",
+          "AVE-2025-550293",
+          "AVE-2025-569248",
+          "AVE-2025-551588"
+        ],
+        "api_vulns": [
+          "AVE-2025-386558",
+          "AVE-2025-475008",
+          "AVE-2025-460970",
+          "AVE-2025-475001",
+          "AVE-2025-510905",
+          "AVE-2025-454139",
+          "AVE-2025-500347",
+          "AVE-2025-439074",
+          "AVE-2025-553200",
+          "AVE-2025-506476",
+          "AVE-2025-505982",
+          "AVE-2025-500348",
+          "AVE-2025-467634",
+          "AVE-2025-535867",
+          "AVE-2025-524706",
+          "AVE-2025-533205",
+          "AVE-2025-509573",
+          "AVE-2025-526638",
+          "AVE-2025-551588",
+          "AVE-2025-569248",
+          "AVE-2025-527120",
+          "AVE-2025-383522",
+          "AVE-2025-506475",
+          "AVE-2025-328741",
+          "AVE-2025-497956",
+          "AVE-2025-427969",
+          "AVE-2025-359354",
+          "AVE-2025-550293"
+        ]
+      }
+    },
+    {
+      "name": "alert_accuracy",
+      "cn_name": "关联告警准确率",
+      "score": 5.0,
+      "max_score": 5,
+      "accuracy": 1.0,
+      "is_passed": true,
+      "detail": {
+        "ai_count": 5,
+        "api_count": 11,
+        "matched": 5,
+        "error": 0,
+        "matched_alerts": [
+          "8451941408189390848",
+          "8451480343785709568",
+          "8443256213101813760",
+          "8445978056350965760",
+          "8445639826904653824"
+        ],
+        "extra_alerts": [],
+        "ai_alerts": [
+          "8451941408189390848",
+          "8451480343785709568",
+          "8443256213101813760",
+          "8445978056350965760",
+          "8445639826904653824"
+        ],
+        "api_alerts": [
+          "8451480343785709568",
+          "8443256213101813760",
+          "8451941408189390848",
+          "8451061615109545984",
+          "8445639826904653824",
+          "8437447873813749760",
+          "8451005266447245312",
+          "8445978057189826560",
+          "8451480343148175359",
+          "8445978056350965760",
+          "8436831793638481920"
+        ]
+      }
+    },
+    {
+      "name": "event_accuracy",
+      "cn_name": "关联事件准确率",
+      "score": 5.0,
+      "max_score": 5,
+      "accuracy": 1.0,
+      "is_passed": true,
+      "detail": {
+        "ai_count": 1,
+        "api_count": 11,
+        "matched": 1,
+        "error": 0,
+        "matched_events": [
+          "8437447863995949056"
+        ],
+        "extra_events": [],
+        "ai_events": [
+          "8437447863995949056"
+        ],
+        "api_events": [
+          "8451850800868319232",
+          "8437447863995949056",
+          "8472257345359388672",
+          "8477556306391539712",
+          "8486779031970586624",
+          "8443256197076443135",
+          "8445639810476630016",
+          "8475162532340244480",
+          "8468850899511697408",
+          "8469354220566814720",
+          "8489140485151465472"
+        ]
+      }
+    },
+    {
+      "name": "format_compliance",
+      "cn_name": "格式合规率",
+      "score": 5.0,
+      "max_score": 5,
+      "accuracy": 1.0,
+      "is_passed": true,
+      "detail": {
+        "total_required": 6,
+        "found_count": 6,
+        "missing_count": 0,
+        "found_sections": [
+          "分析摘要",
+          "资产总览",
+          "关联脆弱性分析",
+          "关联告警分析",
+          "关联事件分析",
+          "修复建议"
+        ],
+        "missing_sections": [],
+        "compliance_rate": 1.0
+      }
+    }
+  ]
+}
