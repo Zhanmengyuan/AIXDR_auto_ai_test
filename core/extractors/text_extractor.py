@@ -38,6 +38,18 @@ class TextExtractor:
         return None
 
     @staticmethod
+    def extract_table_field_multi(text: str, field_names: List[str]) -> Optional[str]:
+        """从表格格式文本中提取字段值，支持多个字段名
+
+        依次尝试每个字段名，返回第一个匹配的值
+        """
+        for field_name in field_names:
+            result = TextExtractor.extract_table_field(text, field_name)
+            if result:
+                return result
+        return None
+
+    @staticmethod
     def extract_cve_list(text: str) -> List[str]:
         """从文本中提取CVE编号列表"""
         pattern = r'CVE[-\s]?(\d{4})[-\s]?(\d{4,})'

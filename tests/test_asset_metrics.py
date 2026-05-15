@@ -1,19 +1,20 @@
 """
-资产解读模块评测 - 整合测试
-===========================
+资产解读模块评测 - 整合测试（单资产）
+======================================
 
-资产解读模块评测指标：
-1. 风险等级准确率（多分类）  - 20分
-2. 资产风险评分准确率      - 10分
-3. 资产关键字段完整率      - 10分
-4. 漏洞列表准确率          - 10分
-5. 关联告警准确率          - 5分
-6. 关联事件准确率          - 5分
-7. 格式合规率              - 5分
-8. 稳定性（重复执行）      - 5分
-9. 首包响应时间            - 5分
-10. 平均响应时间           - 5分
-11. 整体内容正确性         - 20分
+资产解读模块评测指标（单资产）：
+1. 资产风险评分准确率      - 10分
+2. 资产关键字段完整率      - 10分
+3. 漏洞列表准确率          - 10分
+4. 关联告警准确率          - 5分
+5. 关联事件准确率          - 5分
+6. 格式合规率              - 5分
+7. 稳定性（重复执行）      - 5分
+8. 整体内容正确性         - 20分
+
+多资产批量评测指标（使用独立脚本）：
+- 风险等级准确率（宏平均F1）→ test_risk_level_batch.py
+- 首包响应时间 / 平均响应时间 → test_response_time.py
 """
 
 import os
@@ -28,7 +29,6 @@ from core.api_clients import AssetAPIClient, VulnAPIClient, AlertAPIClient, Even
 from core.calculators import (
     FieldCompletenessCalculator,
     VulnAccuracyCalculator,
-    RiskLevelCalculator,
     RiskScoreCalculator,
     AlertAccuracyCalculator,
     EventAccuracyCalculator,
@@ -41,8 +41,8 @@ def load_ai_data(asset_id: str, outputs_dir: str) -> tuple:
     """加载AI解析数据，返回(parsed_data, markdown_text)"""
     # outputs目录在项目根目录
     project_root = os.path.dirname(os.path.dirname(__file__))
-    json_file = os.path.join(project_root, "outputs", f"asset_data_{asset_id}.json")
-    md_file = os.path.join(project_root, "outputs", f"asset_report_{asset_id}.md")
+    json_file = os.path.join(project_root, "outputs", "raw_json", f"asset_data_{asset_id}.json")
+    md_file = os.path.join(project_root, "outputs", "raw_md", f"asset_report_{asset_id}.md")
 
     if not os.path.exists(json_file):
         print(f"❌ AI解析数据不存在: {json_file}")
@@ -115,43 +115,37 @@ def run_asset_metrics_evaluation(asset_id: str = None):
 
     metric_results = []
 
-    # 1. 风险等级准确率 (20分)
-    risk_level_calc = RiskLevelCalculator()
-    risk_level_result = risk_level_calc.calculate(ai_data, api_asset_data)
-    metric_results.append(risk_level_result)
-    print(f"  - 风险等级准确率: {risk_level_result.accuracy*100:.1f}%")
-
-    # 2. 资产风险评分准确率 (10分)
+    # 1. 资产风险评分准确率 (10分)
     risk_score_calc = RiskScoreCalculator()
     risk_score_result = risk_score_calc.calculate(ai_data, api_asset_data)
     metric_results.append(risk_score_result)
     print(f"  - 资产风险评分准确率: {risk_score_result.accuracy*100:.1f}%")
 
-    # 3. 资产关键字段完整率 (10分)
+    # 2. 资产关键字段完整率 (10分)
     field_calc = FieldCompletenessCalculator()
     field_result = field_calc.calculate_with_comparison(ai_data, api_asset_data)
     metric_results.append(field_result)
     print(f"  - 资产关键字段完整率: {field_result.accuracy*100:.1f}%")
 
-    # 4. 漏洞列表准确率 (10分)
+    # 3. 漏洞列表准确率 (10分)
     vuln_calc = VulnAccuracyCalculator()
     vuln_result = vuln_calc.calculate(ai_data, api_asset_data)
     metric_results.append(vuln_result)
     print(f"  - 漏洞列表准确率: {vuln_result.accuracy*100:.1f}%")
 
-    # 5. 关联告警准确率 (5分)
+    # 4. 关联告警准确率 (5分)
     alert_calc = AlertAccuracyCalculator()
     alert_result = alert_calc.calculate(ai_data, api_asset_data)
     metric_results.append(alert_result)
     print(f"  - 关联告警准确率: {alert_result.accuracy*100:.1f}%")
 
-    # 6. 关联事件准确率 (5分)
+    # 5. 关联事件准确率 (5分)
     event_calc = EventAccuracyCalculator()
     event_result = event_calc.calculate(ai_data, api_asset_data)
     metric_results.append(event_result)
     print(f"  - 关联事件准确率: {event_result.accuracy*100:.1f}%")
 
-    # 7. 格式合规率 (5分)
+    # 6. 格式合规率 (5分)
     format_calc = FormatComplianceCalculator()
     format_result = format_calc.calculate({"raw_text": markdown_text})
     metric_results.append(format_result)

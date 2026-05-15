@@ -49,7 +49,9 @@ class AIExtractor:
         result['last_online_time'] = self.text_extractor.extract_table_field(markdown_text, '最后上线时间')
 
         # 风险字段
-        risk_level = self.text_extractor.extract_table_field(markdown_text, '风险等级')
+        risk_level = self.text_extractor.extract_table_field_multi(
+            markdown_text, ['资产风险等级', '风险等级', '风险级别']
+        )
         if not risk_level:
             risk_level = self._extract_risk_level_fallback(markdown_text)
         result['risk_level'] = risk_level
@@ -71,8 +73,8 @@ class AIExtractor:
     def _extract_risk_level_fallback(self, text: str) -> Optional[str]:
         """兜底提取风险等级"""
         patterns = [
-            r'风险等级[：:]\s*([^\n*]+)',
-            r'风险[：:]?\s*(高危|中危|低危|严重)',
+            r'(?:资产风险等级|风险等级|风险级别)[：:为]?\s*\*{0,2}(严重|高危|中危|低危)',
+            r'风险[：:]\s*(严重|高危|中危|低危)',
         ]
         for pattern in patterns:
             match = re.search(pattern, text)
