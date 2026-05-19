@@ -48,6 +48,10 @@ class ConfigLoader:
         return self._config.get('test_assets', [])
 
     @property
+    def test_alerts(self) -> List[str]:
+        return self._config.get('test_alerts', [])
+
+    @property
     def field_mapping(self) -> Dict[str, List[str]]:
         return self._config.get('field_mapping', {})
 

@@ -964,3 +964,142 @@ def test_format_compliance(client, test_data):
 2. **实时监控**：对接生产环境，持续采集智能体表现数据
 3. **回归测试**：建立版本对比机制，量化性能回归
 4. **分布式执行**：支持大规模样本的并行测试，提升测试效率
+
+---
+
+## 十一、项目文件清理计划
+
+### 11.1 当前项目结构
+
+```
+AIXDR_auto_ai_test/
+├── agents/                          # ✅ AI解读智能体核心代码
+│   ├── ai_interpret_agent.py         # 智能体主控制器
+│   └── test_case_manager.py          # 测试用例管理器
+├── core/                            # ✅ 核心功能模块
+│   ├── api_clients/                 # API客户端
+│   │   ├── asset_client.py          # 资产详情API
+│   │   ├── vuln_client.py            # 漏洞列表API
+│   │   ├── alert_client.py           # 告警列表API
+│   │   ├── event_client.py           # 事件列表API
+│   │   └── base_client.py            # API基类
+│   ├── calculators/                  # 指标计算器
+│   │   ├── risk_level_calc.py        # 风险等级计算
+│   │   ├── risk_score_calc.py        # 风险评分计算
+│   │   ├── vuln_accuracy_calc.py     # 漏洞准确率计算
+│   │   └── ...                      # 其他计算器
+│   ├── extractors/                  # 数据提取器
+│   │   ├── ai_extractor.py          # AI输出提取
+│   │   └── text_extractor.py         # 文本提取
+│   ├── reporter/                     # 报告生成器
+│   │   └── report_generator.py
+│   └── config_loader.py             # 配置加载器
+├── config/                          # ✅ 配置文件
+│   └── config_api.yaml              # API配置
+├── test_data/                       # ✅ 测试数据
+│   ├── asset/                       # 资产解读测试用例
+│   ├── vuln/                        # 漏洞解读测试用例
+│   ├── alert/                       # 告警解读测试用例
+│   └── event/                       # 事件解读测试用例
+├── outputs/                         # ✅ 测试输出
+│   ├── raw_json/                    # AI解析JSON
+│   ├── raw_md/                      # AI原始Markdown
+│   └── ai_interpret_test_report.json # 综合测试报告
+├── tests/                           # ⚠️ 待清理
+│   ├── test_api_pytest.py           # 旧pytest测试
+│   ├── test_asset_metrics.py        # 旧单元测试
+│   ├── test_response_time.py         # 旧响应时间测试
+│   └── test_risk_level_batch.py      # 旧风险等级测试
+├── run_ai_test_agent.py             # ✅ 主执行入口
+├── batch_ai_interpret.py            # ⚠️ 可能是旧版本
+├── test_AI.py                       # ⚠️ 早期测试脚本
+├── README.md                         # ⚠️ 需确认是否重复
+├── AI_TEST_AGENT_README.md          # ⚠️ 可能重复
+├── AIXDR_解读类模块_自动测试设计方案.md  # ✅ 设计文档
+└── AIXDR智能体测试评价标准.docx        # ✅ 需求文档
+```
+
+### 11.2 待清理文件清单
+
+#### A. 根目录旧测试脚本
+| 文件 | 清理建议 | 原因 |
+|------|---------|------|
+| `test_AI.py` | **删除** | 早期测试脚本，功能已由 `run_ai_test_agent.py` 替代 |
+| `batch_ai_interpret.py` | **删除** | 可能是 `run_ai_test_agent.py` 的旧版本 |
+
+#### B. tests/ 目录旧pytest文件
+| 文件 | 清理建议 | 原因 |
+|------|---------|------|
+| `tests/test_api_pytest.py` | **删除** | 早期单元测试，指标计算已集成到 `ai_interpret_agent.py` |
+| `tests/test_asset_metrics.py` | **删除** | 旧资产指标测试，功能已迁移 |
+| `tests/test_response_time.py` | **删除** | 旧响应时间测试，功能已迁移 |
+| `tests/test_risk_level_batch.py` | **删除** | 旧风险等级测试，功能已迁移 |
+
+#### C. 文档文件
+| 文件 | 清理建议 | 原因 |
+|------|---------|------|
+| `README.md` | **合并/删除** | 内容可能与 `AI_TEST_AGENT_README.md` 重复 |
+| `AI_TEST_AGENT_README.md` | **合并到主文档** | 建议合并到 `AIXDR_解读类模块_自动测试设计方案.md` |
+
+#### D. 旧输出文件
+| 文件 | 清理建议 | 原因 |
+|------|---------|------|
+| `outputs/metrics_report_*.json` | **删除** | 单资产旧报告，已被 `ai_interpret_test_report.json` 替代 |
+| `outputs/risk_level_batch_result.json` | **删除** | 与 `multi_asset_report.json` 功能重复 |
+
+### 11.3 清理执行命令
+
+```bash
+# 删除旧测试脚本
+rm -f test_AI.py batch_ai_interpret.py
+
+# 删除tests目录下的旧pytest文件
+rm -f tests/test_api_pytest.py tests/test_asset_metrics.py tests/test_response_time.py tests/test_risk_level_batch.py
+
+# 删除重复文档
+rm -f README.md AI_TEST_AGENT_README.md
+
+# 删除旧输出文件
+rm -f outputs/metrics_report_*.json outputs/risk_level_batch_result.json
+```
+
+### 11.4 清理后的项目结构
+
+```
+AIXDR_auto_ai_test/
+├── agents/                          # AI解读智能体核心代码
+│   ├── ai_interpret_agent.py         # 智能体主控制器
+│   └── test_case_manager.py          # 测试用例管理器
+├── core/                            # 核心功能模块
+│   ├── api_clients/                 # API客户端
+│   ├── calculators/                  # 指标计算器
+│   ├── extractors/                  # 数据提取器
+│   ├── reporter/                   # 报告生成器
+│   └── config_loader.py             # 配置加载器
+├── config/                          # 配置文件
+├── test_data/                       # 测试数据
+│   ├── asset/
+│   ├── vuln/
+│   ├── alert/
+│   └── event/
+├── outputs/                         # 测试输出
+│   ├── raw_json/
+│   ├── raw_md/
+│   └── ai_interpret_test_report.json
+├── tests/                           # (空目录，可删除)
+├── run_ai_test_agent.py             # 主执行入口
+└── AIXDR_解读类模块_自动测试设计方案.md  # 设计文档
+```
+
+### 11.5 清理状态
+
+| 类别 | 文件数 | 状态 |
+|------|--------|------|
+| 核心代码 | 15 | ✅ 保留 |
+| 配置文件 | 1 | ✅ 保留 |
+| 测试数据 | 4 | ✅ 保留 |
+| 输出结果 | 12 | ✅ 保留 |
+| 旧测试脚本 | 2 | ⏳ 待清理 |
+| 旧pytest | 4 | ⏳ 待清理 |
+| 重复文档 | 2 | ⏳ 待清理 |
+| 旧输出 | 11 | ⏳ 待清理 |

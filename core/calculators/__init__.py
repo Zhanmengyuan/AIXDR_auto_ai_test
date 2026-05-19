@@ -11,6 +11,7 @@ from .alert_accuracy_calc import AlertAccuracyCalculator
 from .event_accuracy_calc import EventAccuracyCalculator
 from .format_compliance_calc import FormatComplianceCalculator
 from .response_time_calc import ResponseTimeCalculator
+from .cvss_calc import CVSSCalculator
 
 __all__ = [
     "BaseCalculator",
@@ -21,5 +22,6 @@ __all__ = [
     "AlertAccuracyCalculator",
     "EventAccuracyCalculator",
     "FormatComplianceCalculator",
-    "ResponseTimeCalculator"
+    "ResponseTimeCalculator",
+    "CVSSCalculator"
 ]
