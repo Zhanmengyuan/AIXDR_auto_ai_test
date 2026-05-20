@@ -102,17 +102,31 @@ class TextExtractor:
             Dict: 包含提取字段的结构化数据
         """
         # 首先找到受影响资产分析章节
-        section_match = re.search(r'##\s*[^#\n]*受影响资产[^#\n]*.*?(?=##\s*[^#\n]+|$)', text, re.DOTALL)
+        section_match = re.search(r'##\s*[^#\n]*(受影响资产|资产分析)[^#\n]*.*?(?=##\s*[^#\n]+|$)', text, re.DOTALL)
         
         if not section_match:
-            section_match = re.search(r'##\s*[^#\n]*受影响资产[^#\n]*.*', text, re.DOTALL)
+            section_match = re.search(r'##\s*[^#\n]*(受影响资产|资产分析)[^#\n]*.*', text, re.DOTALL)
         
         section_text = section_match.group(0) if section_match else text
+
+        # 解析两列表格为键值对的回退方案（例如 | 项目 | 信息 | 的表格）
+        table_kv = {}
+        table_row_pattern = re.compile(r'^\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)\s*\|', re.MULTILINE)
+        for m in table_row_pattern.findall(section_text):
+            key = m[0].strip().strip('`').strip()
+            val = m[1].strip().strip('`').strip()
+            # 归一化 key
+            norm_key = re.sub(r'\s+', '', key)
+            table_kv[norm_key] = val
 
         # 通用提取函数：支持表格格式和列表格式
         def extract_field(field_names: list) -> str:
             """从文本中提取字段值，支持多个字段名和多种格式"""
             for field_name in field_names:
+                # 0. 优先从解析出的表格键值对中查找（去掉空格以提高匹配率）
+                norm_fn = re.sub(r'\s+', '', field_name)
+                if norm_fn in table_kv:
+                    return table_kv[norm_fn]
                 # 1. 先尝试表格格式
                 value = TextExtractor.extract_table_field(section_text, field_name)
                 if value:
@@ -133,19 +147,19 @@ class TextExtractor:
         result = {}
         
         # 提取各个字段
-        result['asset_id'] = extract_field(['资产ID'])
+        result['asset_id'] = extract_field(['资产ID', 'ID'])
         result['ip_address'] = extract_field(['IP地址', 'IP'])
-        result['country'] = extract_field(['国家'])
-        result['hostname'] = extract_field(['主机名'])
-        result['asset_type'] = extract_field(['资产类型'])
-        result['asset_level'] = extract_field(['资产等级'])
-        result['security_domain'] = extract_field(['安全域'])
-        result['os_name'] = extract_field(['操作系统'])
-        result['machine_room'] = extract_field(['机房位置'])
-        result['responsible_person'] = extract_field(['责任人'])
-        result['asset_status'] = extract_field(['资产状态'])
-        result['is_exposed'] = extract_field(['是否暴露面'])
-        result['last_online_time'] = extract_field(['最后上线时间'])
+        result['country'] = extract_field(['国家', '地区'])
+        result['hostname'] = extract_field(['主机名', '主机'])
+        result['asset_type'] = extract_field(['资产类型', '类型'])
+        result['asset_level'] = extract_field(['资产等级', '等级'])
+        result['security_domain'] = extract_field(['安全域', '域'])
+        result['os_name'] = extract_field(['操作系统', '系统'])
+        result['machine_room'] = extract_field(['机房位置', '机房'])
+        result['responsible_person'] = extract_field(['责任人', '负责人'])
+        result['asset_status'] = extract_field(['资产状态', '状态'])
+        result['is_exposed'] = extract_field(['是否暴露面', '暴露面'])
+        result['last_online_time'] = extract_field(['最后上线时间', '上线时间'])
 
         # 统计完整度（检查所有可能的字段）
         all_fields = [
@@ -156,8 +170,8 @@ class TextExtractor:
         ]
         present_count = sum(1 for field in all_fields if result.get(field))
         result['present_count'] = present_count
-        result['total_count'] = 13
-        result['field_completeness'] = present_count / 13
+        result['total_count'] = len(all_fields)
+        result['field_completeness'] = present_count / len(all_fields)
 
         return result
 

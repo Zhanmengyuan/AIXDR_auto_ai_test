@@ -3,6 +3,6 @@
 生成评测报告
 """
 from .report_generator import ReportGenerator
-from .report_generator import TraceReportGenerator
+from .html_report_generator import HTMLReportGenerator
 
-__all__ = ["ReportGenerator", "TraceReportGenerator"]
+__all__ = ["ReportGenerator", "HTMLReportGenerator"]

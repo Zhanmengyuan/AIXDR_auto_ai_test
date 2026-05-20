@@ -25,7 +25,8 @@ from core.calculators import (
     RiskScoreCalculator,
     CVSSCalculator
 )
-from core.reporter import ReportGenerator, TraceReportGenerator
+from core.reporter import ReportGenerator
+from core.reporter.html_report_generator import HTMLReportGenerator
 from .test_case_manager import TestCaseManager, TestCase
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -1214,64 +1215,27 @@ class AIInterpretAgent:
         return self.results
 
     def _generate_comprehensive_report(self) -> None:
-        """生成综合测试报告"""
+        """生成综合测试报告（JSON + HTML）"""
         report_data = self._prepare_report_data()
 
         output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs")
         os.makedirs(output_dir, exist_ok=True)
 
+        # 生成 JSON 报告
         json_path = os.path.join(output_dir, "ai_interpret_test_report.json")
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(report_data, f, ensure_ascii=False, indent=2)
 
         print(f"\n{'='*60}")
         print(f"📄 综合测试报告已生成: {json_path}")
+        
+        # 生成 HTML 可视化报告
+        html_generator = HTMLReportGenerator(output_dir)
+        html_paths = html_generator.generate(report_data)
+        for p in html_paths:
+            print(f"      ├── {p}")
+        
         print(f"{'='*60}")
-
-        self._generate_trace_report()
-
-    def _generate_trace_report(self) -> None:
-        """生成溯源测试报告，按模块分类保存"""
-        try:
-            trace_generator = TraceReportGenerator(self.results, self.config)
-            
-            # 为每个模块生成单独的报告
-            base_output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs")
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            
-            for module, results in self.results.items():
-                if not results:
-                    continue
-                    
-                # 创建模块子目录
-                module_dir = os.path.join(base_output_dir, f"{module}_trace_reports")
-                os.makedirs(module_dir, exist_ok=True)
-                
-                # 为该模块单独生成报告
-                module_trace_generator = TraceReportGenerator({module: results}, self.config)
-                module_trace_report = module_trace_generator.generate_trace_report()
-                
-                # 保存模块报告
-                trace_path = os.path.join(module_dir, f"trace_report_{module}_{timestamp}.json")
-                
-                with open(trace_path, 'w', encoding='utf-8') as f:
-                    json.dump(module_trace_report, f, ensure_ascii=False, indent=2)
-                
-                print(f"📄 {module}模块溯源测试报告已生成: {trace_path}")
-            
-            # 同时也保留综合报告
-            all_dir = os.path.join(base_output_dir, "all_trace_reports")
-            os.makedirs(all_dir, exist_ok=True)
-            
-            comprehensive_trace_report = trace_generator.generate_trace_report()
-            comprehensive_path = os.path.join(all_dir, f"trace_report_all_{timestamp}.json")
-            
-            with open(comprehensive_path, 'w', encoding='utf-8') as f:
-                json.dump(comprehensive_trace_report, f, ensure_ascii=False, indent=2)
-                
-            print(f"📄 综合溯源测试报告已生成: {comprehensive_path}")
-        except Exception as e:
-            print(f"⚠️ 溯源报告生成失败: {e}")
 
     def _prepare_report_data(self) -> Dict[str, Any]:
         """准备报告数据"""

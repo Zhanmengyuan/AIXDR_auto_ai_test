@@ -128,13 +128,76 @@ def main():
             run_asset_test()
         elif args.module == "alert":
             run_alert_test()
-        else:
+        elif args.module == "vuln":
+            # vuln 模块直接从配置文件读取
+            print("\n" + "="*60)
+            print("运行漏洞解读模块测试")
+            print("="*60)
+
             agent = AIInterpretAgent()
-            test_cases = agent.test_case_manager.load_test_cases(args.module)
-            if test_cases:
-                agent.run_module_tests(args.module, test_cases)
+            from core.config_loader import ConfigLoader
+            config = ConfigLoader()
+            vuln_ids = config.test_vulns if hasattr(config, 'test_vulns') else []
+
+            if not vuln_ids:
+                print("⚠️ 配置文件中没有配置测试漏洞 ID")
             else:
-                print(f"⚠️ 模块 {args.module} 没有测试用例")
+                from agents.test_case_manager import TestCase
+                test_cases = []
+                for idx, vuln_id in enumerate(vuln_ids):
+                    test_case = TestCase(
+                        case_id=f"vuln_test_{idx+1:02d}",
+                        module="vuln",
+                        input_data={"vuln_id": vuln_id},
+                        expected_output={},
+                        description=f"漏洞解读测试 - {vuln_id}",
+                        tags=["automated", "vuln"]
+                    )
+                    test_cases.append(test_case)
+
+                print(f"\n准备执行 {len(test_cases)} 个漏洞解读测试用例...")
+                results = agent.run_module_tests("vuln", test_cases)
+
+                if results:
+                    print(f"\n{'='*60}")
+                    print(f"📄 生成综合测试报告...")
+                    print(f"{'='*60}")
+                    agent._generate_comprehensive_report()
+        elif args.module == "event":
+            # event 模块直接从配置文件读取
+            print("\n" + "="*60)
+            print("运行安全事件解读模块测试")
+            print("="*60)
+
+            agent = AIInterpretAgent()
+            from core.config_loader import ConfigLoader
+            config = ConfigLoader()
+            event_ids = config.test_events if hasattr(config, 'test_events') else []
+
+            if not event_ids:
+                print("⚠️ 配置文件中没有配置测试事件 ID")
+            else:
+                from agents.test_case_manager import TestCase
+                test_cases = []
+                for idx, event_id in enumerate(event_ids):
+                    test_case = TestCase(
+                        case_id=f"event_test_{idx+1:02d}",
+                        module="event",
+                        input_data={"event_id": event_id},
+                        expected_output={},
+                        description=f"事件解读测试 - {event_id}",
+                        tags=["automated", "event"]
+                    )
+                    test_cases.append(test_case)
+
+                print(f"\n准备执行 {len(test_cases)} 个事件解读测试用例...")
+                results = agent.run_module_tests("event", test_cases)
+
+                if results:
+                    print(f"\n{'='*60}")
+                    print(f"📄 生成综合测试报告...")
+                    print(f"{'='*60}")
+                    agent._generate_comprehensive_report()
     elif args.mode == "init":
         init_sample_test_cases()
     elif args.mode == "asset":
