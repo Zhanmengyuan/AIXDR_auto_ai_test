@@ -938,8 +938,9 @@ class AIInterpretAgent:
             field_details = []
 
             required_fields = [
-                "asset_id", "ip_address", "organization", "hostname",
-                "asset_type", "asset_level", "os_name",
+                "asset_id", "ip_address", "country", "hostname",
+                "asset_type", "asset_level", "security_domain",
+                "os_name", "machine_room", "responsible_person",
                 "asset_status", "is_exposed", "last_online_time"
             ]
 
@@ -980,6 +981,9 @@ class AIInterpretAgent:
                             asset_detail = get_asset_detail_from_api(asset_id)
                             if asset_detail:
                                 return asset_detail.get("last_online_time", "")
+                            return ""
+                        elif field in ["country", "security_domain", "machine_room", "responsible_person"]:
+                            # 这些字段可能在API中没有直接对应，先返回空字符串
                             return ""
                         else:
                             return api_asset.get(field)
@@ -1227,19 +1231,45 @@ class AIInterpretAgent:
         self._generate_trace_report()
 
     def _generate_trace_report(self) -> None:
-        """生成溯源测试报告"""
+        """生成溯源测试报告，按模块分类保存"""
         try:
             trace_generator = TraceReportGenerator(self.results, self.config)
-            trace_report = trace_generator.generate_trace_report()
-
-            trace_output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs")
+            
+            # 为每个模块生成单独的报告
+            base_output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs")
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            trace_path = os.path.join(trace_output_dir, f"trace_report_{timestamp}.json")
-
-            with open(trace_path, 'w', encoding='utf-8') as f:
-                json.dump(trace_report, f, ensure_ascii=False, indent=2)
-
-            print(f"📄 溯源测试报告已生成: {trace_path}")
+            
+            for module, results in self.results.items():
+                if not results:
+                    continue
+                    
+                # 创建模块子目录
+                module_dir = os.path.join(base_output_dir, f"{module}_trace_reports")
+                os.makedirs(module_dir, exist_ok=True)
+                
+                # 为该模块单独生成报告
+                module_trace_generator = TraceReportGenerator({module: results}, self.config)
+                module_trace_report = module_trace_generator.generate_trace_report()
+                
+                # 保存模块报告
+                trace_path = os.path.join(module_dir, f"trace_report_{module}_{timestamp}.json")
+                
+                with open(trace_path, 'w', encoding='utf-8') as f:
+                    json.dump(module_trace_report, f, ensure_ascii=False, indent=2)
+                
+                print(f"📄 {module}模块溯源测试报告已生成: {trace_path}")
+            
+            # 同时也保留综合报告
+            all_dir = os.path.join(base_output_dir, "all_trace_reports")
+            os.makedirs(all_dir, exist_ok=True)
+            
+            comprehensive_trace_report = trace_generator.generate_trace_report()
+            comprehensive_path = os.path.join(all_dir, f"trace_report_all_{timestamp}.json")
+            
+            with open(comprehensive_path, 'w', encoding='utf-8') as f:
+                json.dump(comprehensive_trace_report, f, ensure_ascii=False, indent=2)
+                
+            print(f"📄 综合溯源测试报告已生成: {comprehensive_path}")
         except Exception as e:
             print(f"⚠️ 溯源报告生成失败: {e}")
 

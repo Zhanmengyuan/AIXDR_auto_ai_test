@@ -92,111 +92,72 @@ class TextExtractor:
 
     @staticmethod
     def extract_affected_asset_analysis(text: str) -> Dict[str, Any]:
-        """提取受影响资产分析的10个字段
+        """提取受影响资产分析的字段
 
-        字段：资产ID、IP地址、国家、主机名、资产类型、资产等级、操作系统、资产状态、是否暴露面、最后上线时间
+        支持两种格式：
+        1. 表格格式: | **字段名** | 值 |
+        2. 列表格式: - **字段名**：值
 
         Returns:
-            Dict: 包含10个字段的结构化数据
+            Dict: 包含提取字段的结构化数据
         """
-        required_fields = [
-            'asset_id',           # 资产ID
-            'ip_address',         # IP地址
-            'organization',       # 组织
-            'hostname',           # 主机名
-            'asset_type',         # 资产类型
-            'asset_level',        # 资产等级
-            'os_name',            # 操作系统
-            'asset_status',       # 资产状态
-            'is_exposed',         # 是否暴露面
-            'last_online_time'    # 最后上线时间
-        ]
-
-        section_pattern = r'##\s*[^#]*受影响资产[^#]*|(?<=##\s*\d+[^#]*)[^#]+(?=##\s*\d+|$)'
-        section_match = re.search(r'##\s*[^#\n]*受影响资产[^#\n]*.*?(?=##\s*[^#\n]+(?:##|$))', text, re.DOTALL)
+        # 首先找到受影响资产分析章节
+        section_match = re.search(r'##\s*[^#\n]*受影响资产[^#\n]*.*?(?=##\s*[^#\n]+|$)', text, re.DOTALL)
         
         if not section_match:
             section_match = re.search(r'##\s*[^#\n]*受影响资产[^#\n]*.*', text, re.DOTALL)
         
         section_text = section_match.group(0) if section_match else text
 
+        # 通用提取函数：支持表格格式和列表格式
+        def extract_field(field_names: list) -> str:
+            """从文本中提取字段值，支持多个字段名和多种格式"""
+            for field_name in field_names:
+                # 1. 先尝试表格格式
+                value = TextExtractor.extract_table_field(section_text, field_name)
+                if value:
+                    return value.strip()
+                
+                # 2. 尝试列表格式：- **字段名**：值 或者 - **字段名**: 值
+                patterns = [
+                    rf'-\s*\*\*{field_name}\*\*[：:]\s*([^\n]+)',
+                    rf'\*\*{field_name}\*\*[：:]\s*([^\n]+)',
+                    rf'{field_name}[：:]\s*([^\n\|]+)',
+                ]
+                for pattern in patterns:
+                    match = re.search(pattern, section_text)
+                    if match:
+                        return match.group(1).strip()
+            return None
+
         result = {}
-        for field in required_fields:
-            value = None
+        
+        # 提取各个字段
+        result['asset_id'] = extract_field(['资产ID'])
+        result['ip_address'] = extract_field(['IP地址', 'IP'])
+        result['country'] = extract_field(['国家'])
+        result['hostname'] = extract_field(['主机名'])
+        result['asset_type'] = extract_field(['资产类型'])
+        result['asset_level'] = extract_field(['资产等级'])
+        result['security_domain'] = extract_field(['安全域'])
+        result['os_name'] = extract_field(['操作系统'])
+        result['machine_room'] = extract_field(['机房位置'])
+        result['responsible_person'] = extract_field(['责任人'])
+        result['asset_status'] = extract_field(['资产状态'])
+        result['is_exposed'] = extract_field(['是否暴露面'])
+        result['last_online_time'] = extract_field(['最后上线时间'])
 
-            if field == 'asset_id':
-                value = TextExtractor.extract_table_field(section_text, '资产ID')
-                if not value:
-                    match = re.search(r'资产ID[：:]\s*([A-Za-z0-9_\-]+)', section_text)
-                    value = match.group(1) if match else None
-
-            elif field == 'ip_address':
-                value = TextExtractor.extract_table_field(section_text, 'IP地址')
-                if not value:
-                    value = TextExtractor.extract_table_field(section_text, 'IP')
-                if not value:
-                    match = re.search(r'IP[：:为]\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', section_text)
-                    value = match.group(1) if match else None
-
-            elif field == 'organization':
-                value = TextExtractor.extract_table_field(section_text, '组织')
-                if not value:
-                    value = TextExtractor.extract_table_field(section_text, '所属组织')
-                if not value:
-                    match = re.search(r'组织[：:]\s*([^\n\|]+)', section_text)
-                    value = match.group(1).strip() if match else None
-                if not value:
-                    match = re.search(r'所属组织[：:]\s*([^\n\|]+)', section_text)
-                    value = match.group(1).strip() if match else None
-
-            elif field == 'hostname':
-                value = TextExtractor.extract_table_field(section_text, '主机名')
-                if not value:
-                    match = re.search(r'主机名[：:]\s*([^\n\|]+)', section_text)
-                    value = match.group(1).strip() if match else None
-
-            elif field == 'asset_type':
-                value = TextExtractor.extract_table_field(section_text, '资产类型')
-                if not value:
-                    match = re.search(r'资产类型[：:]\s*([^\n\|]+)', section_text)
-                    value = match.group(1).strip() if match else None
-
-            elif field == 'asset_level':
-                value = TextExtractor.extract_table_field(section_text, '资产等级')
-                if not value:
-                    match = re.search(r'资产等级[：:]\s*([^\n\|]+)', section_text)
-                    value = match.group(1).strip() if match else None
-
-            elif field == 'os_name':
-                value = TextExtractor.extract_table_field(section_text, '操作系统')
-                if not value:
-                    match = re.search(r'操作系统[：:]\s*([^\n\|]+)', section_text)
-                    value = match.group(1).strip() if match else None
-
-            elif field == 'asset_status':
-                value = TextExtractor.extract_table_field(section_text, '资产状态')
-                if not value:
-                    match = re.search(r'资产状态[：:]\s*([^\n\|]+)', section_text)
-                    value = match.group(1).strip() if match else None
-
-            elif field == 'is_exposed':
-                value = TextExtractor.extract_table_field(section_text, '是否暴露面')
-                if not value:
-                    match = re.search(r'是否暴露面[：:]\s*([^\n\|]+)', section_text)
-                    value = match.group(1).strip() if match else None
-
-            elif field == 'last_online_time':
-                value = TextExtractor.extract_table_field(section_text, '最后上线时间')
-                if not value:
-                    match = re.search(r'最后上线时间[：:]\s*([^\n\|]+)', section_text)
-                    value = match.group(1).strip() if match else None
-
-            result[field] = value
-
-        present_count = sum(1 for v in result.values() if v)
+        # 统计完整度（检查所有可能的字段）
+        all_fields = [
+            'asset_id', 'ip_address', 'country', 'hostname', 
+            'asset_type', 'asset_level', 'security_domain', 
+            'os_name', 'machine_room', 'responsible_person',
+            'asset_status', 'is_exposed', 'last_online_time'
+        ]
+        present_count = sum(1 for field in all_fields if result.get(field))
         result['present_count'] = present_count
-        result['total_count'] = 10
-        result['field_completeness'] = present_count / 10
+        result['total_count'] = 13
+        result['field_completeness'] = present_count / 13
 
         return result
 

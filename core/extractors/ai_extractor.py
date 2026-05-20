@@ -85,8 +85,11 @@ class AIExtractor:
     def _extract_risk_score(self, text: str) -> Optional[int]:
         """提取风险评分"""
         patterns = [
+            r'(?:安全评分|风险评分|资产评分|风险分)[：:为]?\s*[*]*(\d+)分?',
+            r'\*\*(\d+)分\*\*.*?(?:严重|高危|中危|低危)',
             r'(?:风险评分|资产评分|风险分)[：:]\s*(\d+)',
             r'(\d+)（严重|高危|中危|低危）',
+            r'评分[：:为]?\s*(\d+)分?',
         ]
         for pattern in patterns:
             match = re.search(pattern, text)
