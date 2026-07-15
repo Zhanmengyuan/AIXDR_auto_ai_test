@@ -985,7 +985,6 @@ AIXDR_auto_ai_test/
 │   │   └── base_client.py            # API基类
 │   ├── calculators/                  # 指标计算器
 │   │   ├── risk_level_calc.py        # 风险等级计算
-│   │   ├── risk_score_calc.py        # 风险评分计算
 │   │   ├── vuln_accuracy_calc.py     # 漏洞准确率计算
 │   │   └── ...                      # 其他计算器
 │   ├── extractors/                  # 数据提取器
@@ -1001,10 +1000,10 @@ AIXDR_auto_ai_test/
 │   ├── vuln/                        # 漏洞解读测试用例
 │   ├── alert/                       # 告警解读测试用例
 │   └── event/                       # 事件解读测试用例
-├── outputs/                         # ✅ 测试输出
-│   ├── raw_json/                    # AI解析JSON
-│   ├── raw_md/                      # AI原始Markdown
-│   └── ai_interpret_test_report.json # 综合测试报告
+├── outputs/                         # ✅ 测试输出（按脚本分类）
+│   ├── ai_test_agent/               # run_ai_test_agent.py 生成
+│   ├── batch_audit/                 # run_batch_audit.py 生成
+│   └── stability_test/              # run_stability_test.py 生成
 ├── tests/                           # ⚠️ 待清理
 │   ├── test_api_pytest.py           # 旧pytest测试
 │   ├── test_asset_metrics.py        # 旧单元测试
@@ -1082,10 +1081,10 @@ AIXDR_auto_ai_test/
 │   ├── vuln/
 │   ├── alert/
 │   └── event/
-├── outputs/                         # 测试输出
-│   ├── raw_json/
-│   ├── raw_md/
-│   └── ai_interpret_test_report.json
+├── outputs/                         # 测试输出（按脚本分类）
+│   ├── ai_test_agent/               # run_ai_test_agent.py 生成
+│   ├── batch_audit/                 # run_batch_audit.py 生成
+│   └── stability_test/              # run_stability_test.py 生成
 ├── tests/                           # (空目录，可删除)
 ├── run_ai_test_agent.py             # 主执行入口
 └── AIXDR_解读类模块_自动测试设计方案.md  # 设计文档

@@ -11,7 +11,7 @@ from .base_client import BaseAPIClient
 class VulnAPIClient(BaseAPIClient):
     """漏洞列表API客户端"""
 
-    def get_asset_vulns(self, asset_id: str, days: int = 7) -> List[str]:
+    def get_asset_vulns(self, asset_id: str, days: int = 90) -> List[str]:
         """获取资产关联的漏洞ID列表
 
         Args:
@@ -72,7 +72,7 @@ class VulnAPIClient(BaseAPIClient):
 
         return list(set(vulns))
 
-    def get_asset_vulns_full(self, asset_id: str, days: int = 7) -> List[Dict[str, Any]]:
+    def get_asset_vulns_full(self, asset_id: str, days: int = 90) -> List[Dict[str, Any]]:
         """获取资产关联的完整漏洞信息"""
         endpoint = self.config.vuln_endpoint
 

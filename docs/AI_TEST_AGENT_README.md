@@ -45,7 +45,7 @@ pip install pyyaml requests
 ### 2. 初始化示例测试用例
 
 ```bash
-python3 run_ai_test_agent.py --mode init
+python3 run_ai_test_agent.py --module init
 ```
 
 这会在 `test_data/` 目录下创建各模块的示例测试用例。
@@ -53,7 +53,7 @@ python3 run_ai_test_agent.py --mode init
 ### 3. 运行资产解读测试
 
 ```bash
-python3 run_ai_test_agent.py --mode asset
+python3 run_ai_test_agent.py --module asset
 ```
 
 ### 4. 运行全模块测试
@@ -95,7 +95,6 @@ python3 run_ai_test_agent.py --mode all
 - `ResponseTimeCalculator`: 响应时间测量
 - `FieldCompletenessCalculator`: 字段完整率
 - `FormatComplianceCalculator`: 格式合规率
-- `RiskScoreCalculator`: 风险评分误差
 
 ## 测试用例格式
 
@@ -119,7 +118,7 @@ python3 run_ai_test_agent.py --mode all
 
 ## 测试报告
 
-测试执行完成后，会在 `outputs/` 目录下生成综合测试报告：
+测试执行完成后，会在 `outputs/ai_test_agent/` 目录下生成综合测试报告：
 - `ai_interpret_test_report.json`: 完整的 JSON 格式报告
 
 报告包含内容：
@@ -177,6 +176,107 @@ all_results = agent.run_all_tests()
 
 - 使用 `batch_ai_interpret.py` 进行批量资产解读和多资产综合评测
 - 使用 `run_ai_test_agent.py` 进行全模块的自动化测试和综合评测
+
+## 自动审查功能
+
+### 功能概述
+
+自动审查功能基于 LLM-as-a-Judge 方式，使用大模型自动审查 AI 生成的解读报告，确保报告符合技能规范要求。
+
+### 工作流程
+
+```
+原始解读报告 → LLM自动审查 → 审查报告(_audit.md) → 自动汇总 → 总结报告(_audit_summary.md)
+```
+
+### 目录结构
+
+```
+outputs/
+├── ai_test_agent/              # AI解读测试（run_ai_test_agent.py）生成
+│   ├── alert_raw_md/          # 原始告警解读报告
+│   ├── event_raw_md/          # 原始事件解读报告
+│   ├── vuln_raw_md/           # 原始漏洞解读报告
+│   └── html_reports/          # HTML 可视化报告
+├── batch_audit/               # 批量审查（run_batch_audit.py）生成
+│   ├── alert_report/          # 告警审查报告
+│   │   ├── {告警编号}_audit.md          # 审查报告
+│   │   └── alert_audit_summary.md       # 审查总结报告
+│   ├── event_report/          # 事件审查报告
+│   │   ├── {事件编号}_audit.md          # 审查报告
+│   │   └── event_audit_summary.md       # 审查总结报告
+│   └── vuln_report/           # 漏洞审查报告
+│       ├── {漏洞ID}_audit.md            # 审查报告
+│       └── vuln_audit_summary.md        # 审查总结报告
+└── stability_test/            # 稳定性测试（run_stability_test.py）生成
+    ├── stability_md/          # 稳定性测试原始markdown
+    └── stability_reports/     # 稳定性测试报告
+```
+
+### 使用方法
+
+#### 审查告警报告
+
+```bash
+python3 run_batch_audit.py alert
+```
+
+#### 审查事件报告
+
+```bash
+python3 run_batch_audit.py event
+```
+
+#### 审查漏洞报告
+
+```bash
+python3 run_batch_audit.py vuln
+```
+
+#### 审查所有类型报告
+
+```bash
+python3 run_batch_audit.py all
+```
+
+### 审查报告内容
+
+审查报告包含以下内容：
+
+1. **总体审计结论**: 合规评级、综合得分、违规项计数、一句话总评
+2. **评分详情**: 各维度得分、扣分说明、评级映射标准
+3. **违规项详情**: 违规章节、违规类型、违规描述
+4. **合规项详情**: 合规章节、合规说明
+5. **纠错修改指引**: 可直接复制替换的修正 Markdown 片段
+
+### 评级标准
+
+| 分数区间 | 评级 | 处置 |
+|----------|------|------|
+| 90-100分 | 完全合规 | 可直接发布 |
+| 70-89分 | 局部瑕疵(需微调) | 修正后可发布 |
+| 0-69分 | 严重违规(驳回重写) | 驳回,重新生成 |
+
+### 总结报告
+
+批量审查完成后，系统会自动生成总结报告，包含：
+
+- 审查统计（总报告数、成功数、平均分）
+- 成功审查报告详情（ID、评级、得分、违规项数）
+- 生成失败报告详情（ID、失败原因）
+- 审查报告文件清单
+- 结论
+
+### 配置说明
+
+LLM 参数配置在 `config/config_api.yaml` 文件中：
+
+```yaml
+llm:
+  api_key: "your-api-key"
+  api_url: "https://llm.asiainfo-sec.com/v1/chat/completions"
+  model: "deepseek-r1"
+```
 
 ## 依赖项
 

@@ -230,13 +230,9 @@ class TraceReportGenerator:
         """格式化指标，添加溯源信息"""
         formatted = {}
         metric_names = {
-            "risk_level_accuracy": "风险等级准确率",
-            "risk_score_accuracy": "风险评分准确率",
-            "field_completeness": "字段完整率",
-            "vuln_list_accuracy": "漏洞列表准确率",
-            "alert_list_accuracy": "告警列表准确率",
-            "event_list_accuracy": "事件列表准确率",
-            "format_compliance": "格式合规率"
+            "first_packet_time": "首包响应时间",
+            "total_response_time": "总包处理时长",
+            "chapter_structure_completeness": "6章结构完整率"
         }
 
         for key, metric in metrics.items():
@@ -256,30 +252,13 @@ class TraceReportGenerator:
 
     def _generate_metric_explanation(self, metric_key: str, metric: Dict[str, Any], ai_data: Dict[str, Any], api_data: Dict[str, Any]) -> str:
         """生成指标说明"""
-        ai_value = metric.get("ai_value")
-        api_value = metric.get("api_value")
-
         explanations = {
-            "risk_level_accuracy": f"AI解读的风险等级为'{ai_value}'，API真实值为'{api_value}'",
-            "risk_score_accuracy": self._generate_risk_score_explanation(ai_value, api_value),
-            "field_completeness": f"字段完整率为{metric.get('value', 0)*100:.1f}%",
-            "vuln_list_accuracy": f"AI解读发现{metric.get('ai_vuln_count', 0)}个漏洞，API真实有{metric.get('api_vuln_count', 0)}个",
-            "alert_list_accuracy": f"AI解读关联{metric.get('ai_alert_count', 0)}个告警，API真实有{metric.get('api_alert_count', 0)}个",
-            "event_list_accuracy": f"AI解读关联{metric.get('ai_event_count', 0)}个事件，API真实有{metric.get('api_event_count', 0)}个",
-            "format_compliance": f"格式合规率为{metric.get('value', 0)*100:.1f}%"
+            "first_packet_time": f"AI首包响应时间为{metric.get('value', 0):.2f}秒，期望≤3秒",
+            "total_response_time": f"AI总包处理时长为{metric.get('value', 0):.2f}秒，期望≤60秒",
+            "chapter_structure_completeness": f"AI报告6章结构匹配结果为{metric.get('ai_value', '0/6')}，期望6/6"
         }
 
         return explanations.get(metric_key, "指标计算中...")
-
-    def _generate_risk_score_explanation(self, ai_value: Any, api_value: Any) -> str:
-        """生成风险评分说明"""
-        try:
-            ai_num = float(ai_value) if ai_value is not None else 0
-            api_num = float(api_value) if api_value is not None else 0
-            diff = abs(ai_num - api_num)
-            return f"AI解读的风险评分为'{ai_value}'，API真实值为'{api_value}'，差异为{diff}分"
-        except (ValueError, TypeError):
-            return f"AI解读的风险评分为'{ai_value}'，API真实值为'{api_value}'"
 
     def _generate_multi_asset_summary(self, module: str, single_results: List[Dict]) -> Dict[str, Any]:
         """生成多样本汇总"""
@@ -296,17 +275,6 @@ class TraceReportGenerator:
 
             summary["avg_first_packet_time"] = sum(all_first_packet) / total if all_first_packet else 0
             summary["avg_response_time"] = sum(all_total_time) / total if all_total_time else 0
-
-            risk_level_accuracies = []
-            for r in single_results:
-                metrics = r.get("metrics", {})
-                if "risk_level_accuracy" in metrics:
-                    risk_level_accuracies.append(metrics["risk_level_accuracy"].get("value", 0))
-
-            if risk_level_accuracies:
-                summary["risk_level_f1"] = sum(risk_level_accuracies) / len(risk_level_accuracies)
-            else:
-                summary["risk_level_f1"] = 0
 
         return summary
 

@@ -147,13 +147,11 @@ class TestCaseManager:
             return TestCase(
                 case_id="alert_sample_001",
                 module="alert",
-                input_data={"alert_id": "ALERT-001"},
+                input_data={"alert_id": "8414306276020527104"},
                 expected_output={
-                    "attack_judgment": "攻击成功",
-                    "risk_level": "严重",
-                    "affected_assets": ["asset_001", "asset_002"]
+                    "threat_determination": "攻击成功",
                 },
-                description="安全告警解读示例测试用例",
+                description="安全告警解读示例测试用例（新指标体系：首字时间+总时长+威胁定性）",
                 tags=["sample", "basic"]
             )
         else:

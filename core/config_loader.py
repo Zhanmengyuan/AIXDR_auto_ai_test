@@ -27,6 +27,28 @@ class ConfigLoader:
         with open(config_path, 'r', encoding='utf-8') as f:
             self._config = yaml.safe_load(f)
 
+        # 自动登录获取Cookie
+        auth_config = self._config.get('auth', {})
+        if auth_config.get('auto_login', False):
+            self._auto_login(auth_config)
+
+    def _auto_login(self, auth_config: Dict[str, Any]):
+        """自动登录获取Cookie"""
+        try:
+            from .api_clients.auth_client import AuthClient
+            auth = AuthClient(self)
+            cookie = auth.login(
+                auth_config.get('username', 'admin'),
+                auth_config.get('password', 'maxs.PDG~2022')
+            )
+            if cookie:
+                self.update_cookie(cookie)
+                print("[ConfigLoader] ✅ 自动登录成功，Cookie已更新")
+            else:
+                print("[ConfigLoader] ⚠️ 自动登录失败，请检查配置")
+        except Exception as e:
+            print(f"[ConfigLoader] ❌ 自动登录异常: {e}")
+
     @classmethod
     def reload(cls, config_path: str = None):
         """重新加载配置"""
@@ -44,12 +66,59 @@ class ConfigLoader:
         return headers
 
     @property
+    def auth_config(self) -> Dict[str, Any]:
+        """登录鉴权配置"""
+        return self._config.get('auth', {
+            "username": "admin",
+            "password": "maxs.PDG~2022",
+            "auto_login": True,
+            "cookie_lifetime": 1700
+        })
+
+    def update_cookie(self, cookie: str):
+        """更新Cookie配置"""
+        self._config['cookie'] = cookie
+
+    @property
+    def redis_config(self) -> Dict[str, Any]:
+        """Redis配置"""
+        return self._config.get('redis', {
+            "host": "192.168.112.150",
+            "port": 16379,
+            "db": 2,
+            "password": None
+        })
+
+    @property
     def test_assets(self) -> List[str]:
         return self._config.get('test_assets', [])
 
     @property
     def test_alerts(self) -> List[str]:
         return self._config.get('test_alerts', [])
+
+    @property
+    def test_events(self) -> List[str]:
+        return self._config.get('test_events', [])
+
+    @property
+    def test_vulns(self) -> List[str]:
+        return self._config.get('test_vulns', [])
+
+    @property
+    def stability_test_alerts(self) -> List[str]:
+        """稳定性测试专用告警ID列表"""
+        return self._config.get('stability_test_alerts', [])
+
+    @property
+    def stability_test_events(self) -> List[str]:
+        """稳定性测试专用事件ID列表"""
+        return self._config.get('stability_test_events', [])
+
+    @property
+    def stability_test_vulns(self) -> List[str]:
+        """稳定性测试专用漏洞ID列表"""
+        return self._config.get('stability_test_vulns', [])
 
     @property
     def field_mapping(self) -> Dict[str, List[str]]:
@@ -70,6 +139,10 @@ class ConfigLoader:
     @property
     def asset_endpoint(self) -> str:
         return self._config.get('api', {}).get('endpoint', '/maxs/asset/manage/getDetailById')
+
+    @property
+    def llm_config(self) -> Dict[str, str]:
+        return self._config.get('llm', {})
 
     def get(self, key: str, default: Any = None) -> Any:
         """获取配置项"""

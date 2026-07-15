@@ -1,7 +1,8 @@
 """
-风险等级准确率计算器
+风险等级加权准确率计算器
 计算AI识别的风险等级与API标准是否一致（多分类）
-支持宏平均F1计算
+采用加权准确率（正确样本数/总样本数），适合真实业务不均衡分布
+注：宏平均F1需各类别≥30个样本且分布均衡，不适用于真实业务数据
 """
 from typing import Any, Dict, List, Tuple
 from .base_calculator import BaseCalculator, MetricResult
@@ -17,14 +18,13 @@ class RiskLevelCalculator(BaseCalculator):
     DEDUCTION_INTERVAL = 0.05
     DEDUCTION_AMOUNT = 5
 
-    RISK_LEVELS = ['严重', '高危', '中危', '低危', '一般']
+    RISK_LEVELS = ['严重', '高危', '中危', '低危', '健康']
 
     def calculate(self, ai_data: Dict[str, Any], api_data: Dict[str, Any]) -> MetricResult:
         """计算风险等级准确率（单次）
 
-        逻辑：
-        - AI识别的风险等级与API标准完全一致 = 100%
-        - 不一致 = 0%
+        逻辑：完全一致 = 1.0，不一致 = 0.0
+        多样本时取均值即为加权准确率（正确样本数/总样本数）
         """
         ai_risk = ai_data.get('risk_level')
         api_risk = api_data.get('risk_level')

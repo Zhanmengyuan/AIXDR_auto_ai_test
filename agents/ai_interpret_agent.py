@@ -22,7 +22,6 @@ from core.calculators import (
     ResponseTimeCalculator,
     FieldCompletenessCalculator,
     FormatComplianceCalculator,
-    RiskScoreCalculator,
     CVSSCalculator
 )
 from core.reporter import ReportGenerator
@@ -34,10 +33,17 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 @dataclass
 class TestResult:
-    """测试结果"""
+    """测试结果
+
+    样本分类：
+    - success=False → 失败样本（AI调用失败，不参与指标计算）
+    - success=True, is_invalid=True → 失效样本（API查不到业务数据，不参与指标计算）
+    - success=True, is_invalid=False → 有效样本（参与指标计算）
+    """
     case_id: str
     module: str
     success: bool
+    input_id: str = ""
     raw_text: str = ""
     parsed_data: Dict[str, Any] = None
     expected_data: Dict[str, Any] = None
@@ -46,6 +52,8 @@ class TestResult:
     total_response_time: float = 0.0
     error: str = ""
     timestamp: str = ""
+    is_invalid: bool = False  # API数据失效（业务数据不存在）
+    recommend_questions: list = None  # SSE流中捕获的推荐问题
 
 
 class AIInterpretAgent:
@@ -55,43 +63,35 @@ class AIInterpretAgent:
         "asset": {
             "name": "资产解读",
             "agent": "asset",
-            "biz_type": 4,
+            "biz_type": 3,
             "id_field": "asset_id",
             "api_client": AssetAPIClient,
             "calculators": [
                 RiskLevelCalculator,
                 ResponseTimeCalculator,
                 FieldCompletenessCalculator,
-                FormatComplianceCalculator,
-                RiskScoreCalculator
+                FormatComplianceCalculator
             ],
             "required_sections": [
-                "分析摘要", "资产总览", "关联脆弱性分析",
-                "关联告警分析", "关联事件分析", "修复建议"
+                "风险速览", "风险轨迹", "当前威胁"
             ]
         },
         "vuln": {
             "name": "漏洞解读",
             "agent": "vuln",
-            "biz_type": 5,
+            "biz_type": 4,
             "id_field": "vuln_id",
             "api_client": VulnAPIClient,
             "calculators": [
-                CVSSCalculator,
-                RiskLevelCalculator,
                 ResponseTimeCalculator,
                 FieldCompletenessCalculator,
                 FormatComplianceCalculator
-            ],
-            "required_sections": [
-                "漏洞概述", "漏洞原理", "风险等级",
-                "影响范围", "修复补丁", "处置建议"
             ]
         },
         "alert": {
             "name": "安全告警解读",
             "agent": "alert",
-            "biz_type": 6,
+            "biz_type": 1,
             "id_field": "alert_id",
             "api_client": AlertAPIClient,
             "calculators": [
@@ -101,15 +101,14 @@ class AIInterpretAgent:
                 FormatComplianceCalculator
             ],
             "required_sections": [
-                "分析摘要", "攻击概览", "源IP分析", "目的IP分析",
-                "数据包内容分析", "取证分析", "受影响资产分析",
-                "情报分析", "关联安全告警分析", "处置建议"
+                "告警定性", "关键实体", "攻击结果与举证",
+                "当前攻击影响", "风险预测", "处置建议"
             ]
         },
         "event": {
             "name": "安全事件解读",
             "agent": "event",
-            "biz_type": 7,
+            "biz_type": 2,
             "id_field": "event_id",
             "api_client": EventAPIClient,
             "calculators": [
@@ -119,8 +118,8 @@ class AIInterpretAgent:
                 FormatComplianceCalculator
             ],
             "required_sections": [
-                "事件概述", "攻击链路", "影响分析",
-                "关联资产", "处置建议"
+                "事件定性", "关键实体", "攻击结果与举证",
+                "当前攻击影响", "风险预测", "处置建议"
             ]
         }
     }
@@ -131,6 +130,13 @@ class AIInterpretAgent:
         self.ai_extractor = AIExtractor()
         self.report_generator = ReportGenerator()
         self.results: Dict[str, List[TestResult]] = {}
+        # 记录启动时的时间戳，整个测试过程统一用此目录（跨午夜不变，多次执行不覆盖）
+        self.run_date = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 各模块 API 客户端在初始化时统一创建（只登录一次），后续复用
+        self._asset_client = AssetAPIClient(self.config)
+        self._alert_client = AlertAPIClient(self.config)
+        self._event_client = EventAPIClient(self.config)
+        self._vuln_client = VulnAPIClient(self.config)
 
     def call_ai_with_timing(
         self,
@@ -144,37 +150,58 @@ class AIInterpretAgent:
 
         session_id = f"-1@{datetime.now().strftime('%Y%m%d%H%M%S')}-{input_id[-8:]}"
         alert_info = ""
+        conversation_id = ""
+
+        # 所有模块都需要先获取sessionId（大写I）
+        getsessionid_url = f"{base_url}/maxs/szr/chat/getSessionId"
 
         if module == "alert":
-            api_client = AlertAPIClient(self.config)
-            api_data = api_client.get_alert_detail(input_id)
+            api_data = self._alert_client.get_alert_detail(input_id)
             alert_info = ""
             if api_data and "error" not in api_data:
                 alert_type = api_data.get("alert_type", "")
                 if alert_type:
                     alert_info = f"查询木马相关域名：{alert_type}，"
-            getsessionid_url = f"{base_url}/maxs/szr/chat/getsessionid"
-            getsessionid_payload = {
-                "userId": -1,
-                "question": f"请为我分析检测到{alert_info}告警ID：{input_id}",
-                "bizType": 1
-            }
-            try:
-                session_resp = requests.post(
-                    getsessionid_url,
-                    headers=headers,
-                    json=getsessionid_payload,
-                    verify=False,
-                    timeout=30
-                )
-                if session_resp.status_code == 200:
-                    session_result = session_resp.json()
-                    session_id = session_result.get("sessionId", session_id)
-                    print(f"  [获取sessionId成功] {session_id}")
-            except Exception as e:
-                print(f"  [获取sessionId异常] {e}")
+            question = f"请为我分析检测到{alert_info}告警ID：{input_id}"
+            biz_type = 1
+        elif module == "event":
+            question = f"请为我调查这个安全事件,事件ID: {input_id}"
+            biz_type = 2
+        elif module == "vuln":
+            # 先获取漏洞详情，提取漏洞名称
+            question = f"请为我分析这个漏洞,编号：{input_id}"
+            biz_type = 4
+        else:  # asset
+            question = f"请为我调查这个资产,资产ID: {input_id}"
+            biz_type = 3
+
+        getsessionid_payload = {
+            "userId": -1,
+            "question": question,
+            "bizType": biz_type
+        }
+
+        try:
+            session_resp = requests.post(
+                getsessionid_url,
+                headers=headers,
+                json=getsessionid_payload,
+                verify=False,
+                timeout=30
+            )
+            if session_resp.status_code == 200:
+                session_result = session_resp.json()
+                # sessionId在message字段中（UUID格式）
+                session_id = session_result.get("message", session_id)
+                # 生成conversationId格式：sessionId@时间戳-随机字符串
+                timestamp_ms = int(time.time() * 1000)
+                random_str = "".join([chr(ord('a') + i % 26) for i in range(8)])
+                conversation_id = f"{session_id}@{timestamp_ms}-{random_str}"
+        except Exception as e:
+            print(f"  [获取sessionId异常] {e}")
 
         raw_text = ""
+        recommend_questions = []  # 捕获推荐问题
         stream_completed = False
         first_packet_time = None
         total_time = None
@@ -182,17 +209,30 @@ class AIInterpretAgent:
         connect_url = f"{base_url}/maxs/szr/chat/connect"
         chat_url = f"{base_url}/maxs/szr/chat/chat"
 
+        sse_connected = threading.Event()
+        
         def listen_sse():
-            nonlocal raw_text, stream_completed, first_packet_time, total_time
+            nonlocal raw_text, stream_completed, first_packet_time, total_time, recommend_questions
             try:
                 with requests.get(
                     connect_url,
-                    params={"sessionId": session_id},
+                    params={
+                        "sessionId": session_id,
+                        "conversationId": conversation_id
+                    },
                     headers={**headers, "Accept": "text/event-stream"},
                     stream=True,
                     verify=False,
-                    timeout=300
+                    timeout=120
                 ) as resp:
+                    if resp.status_code != 200:
+                        print(f"  [SSE连接失败] HTTP {resp.status_code}")
+                        sse_connected.set()  # 即使失败也要通知
+                        return
+
+                    # SSE连接成功,通知可以发送chat请求
+                    sse_connected.set()
+                    
                     for line in resp.iter_lines():
                         elapsed = time.time() - start_time
 
@@ -218,9 +258,44 @@ class AIInterpretAgent:
                             try:
                                 json_data = json.loads(data_str)
                                 code = json_data.get("code")
-                                answer_type = json_data.get("answerType")
+                                answer_type = str(json_data.get("answerType", "")).lower()
+
+                                # 各模块按各自的终止信号记录报告生成结束时间
+                                if str(code) == "200" and total_time is None:
+                                    data_val = json_data.get("data", "")
+                                    # 告警/事件：收到 recommend_start 时结束计时
+                                    if module in ("alert", "event") and answer_type == "recommend_start":
+                                        total_time = time.time() - start_time
+                                    # 漏洞：收到 answerType=text, data="<END_OF_TURN>" 时结束计时
+                                    elif module == "vuln" and answer_type == "text" and data_val == "<END_OF_TURN>":
+                                        total_time = time.time() - start_time
+                                    # 资产：收到 confirm_plan_start 时结束计时
+                                    elif module == "asset" and answer_type == "confirm_plan_start":
+                                        total_time = time.time() - start_time
+
+                                # 兼容不同返回结构
                                 chunk = json_data.get("data", "")
-                                if str(code) == "200" and str(answer_type) == "text":
+                                if isinstance(chunk, dict):
+                                    chunk = chunk.get("content") or chunk.get("text") or ""
+                                if not isinstance(chunk, str):
+                                    chunk = str(chunk) if chunk is not None else ""
+
+                                # 接受 text / markdown 等常见类型，避免因类型变化导致丢失正文
+                                accepted_types = {"text", "markdown", "md", "content", "answer", ""}
+                                if str(code) == "200" and answer_type in accepted_types and chunk:
+                                    raw_text += chunk
+
+                                # 捕获推荐问题（answerType=recommend）
+                                if str(code) == "200" and answer_type == "recommend" and chunk:
+                                    try:
+                                        questions = json.loads(chunk) if isinstance(chunk, str) else chunk
+                                        if isinstance(questions, list):
+                                            recommend_questions = questions
+                                    except Exception:
+                                        pass
+
+                                # 某些场景 answerType 缺失或非标准，但 data 中仍有可用文本
+                                if str(code) == "200" and chunk and not answer_type:
                                     raw_text += chunk
                             except:
                                 continue
@@ -229,6 +304,11 @@ class AIInterpretAgent:
 
         sse_thread = threading.Thread(target=listen_sse, daemon=True)
         sse_thread.start()
+        
+        # 等待SSE连接建立后再发送chat请求
+        if not sse_connected.wait(timeout=10):
+            print("  [超时] SSE连接未在10秒内建立")
+            return {"success": False, "error": "SSE连接超时"}
 
         try:
             if module == "asset":
@@ -236,17 +316,19 @@ class AIInterpretAgent:
                     "question": f"请为我调查这个资产,资产ID: {input_id}",
                     "agent": "asset",
                     "bizId": input_id,
-                    "bizType": 4,
+                    "bizType": 3,
                     "fileId": [],
                     "network": False,
                     "recommend": False,
                     "sessionId": session_id,
+                    "conversationId": conversation_id,
                     "tag": "id"
                 }
             elif module == "alert":
                 chat_payload = {
                     "question": f"请为我分析检测到{alert_info}告警ID：{input_id}",
                     "sessionId": session_id,
+                    "conversationId": conversation_id,
                     "tag": "id",
                     "bizType": 1,
                     "bizId": input_id,
@@ -265,6 +347,7 @@ class AIInterpretAgent:
                     "network": False,
                     "recommend": False,
                     "sessionId": session_id,
+                    "conversationId": conversation_id,
                     "tag": "id"
                 }
 
@@ -280,10 +363,20 @@ class AIInterpretAgent:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-        sse_thread.join(timeout=300)
+        sse_thread.join(timeout=120)
 
         if not raw_text:
             return {"success": False, "error": "无AI响应内容"}
+
+        # 检测 AI 返回的是平台错误提示而非真实解读内容
+        AI_ERROR_PATTERNS = [
+            "AI大模型连接异常",
+            "请检查「平台配置",
+            "AI大模型配置",
+        ]
+        for pattern in AI_ERROR_PATTERNS:
+            if pattern in raw_text:
+                return {"success": False, "error": f"AI平台异常（大模型连接失败）: {raw_text[:100].strip()}"}
 
         if total_time is None:
             total_time = time.time() - start_time
@@ -295,16 +388,17 @@ class AIInterpretAgent:
             "raw_text": raw_text,
             "parsed_data": parsed_data,
             "first_packet_time": first_packet_time or 0,
-            "total_time": total_time or 0
+            "total_time": total_time or 0,
+            "recommend_questions": recommend_questions  # 推荐问题列表
         }
 
-    def save_results(self, module: str, input_id: str, raw_text: str, parsed_data: Dict[str, Any]) -> None:
-        """保存解析结果到文件"""
-        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs")
-        
+    def save_results(self, module: str, input_id: str, raw_text: str, parsed_data: Dict[str, Any], recommend_questions: list = None) -> None:
+        """保存解析结果到文件（用启动日期归档，避免跨午夜目录切换）"""
+        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs", "ai_test_agent", self.run_date)
+
         if module == "asset":
-            md_dir = os.path.join(output_dir, "raw_md")
-            json_dir = os.path.join(output_dir, "raw_json")
+            md_dir = os.path.join(output_dir, "asset_raw_md")
+            json_dir = os.path.join(output_dir, "asset_raw_json")
             prefix = "asset_report"
             data_prefix = "asset_data"
         elif module == "vuln":
@@ -335,13 +429,19 @@ class AIInterpretAgent:
             f.write(f"**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             f.write("---\n\n")
             f.write(raw_text)
+            # 追加推荐问题
+            if recommend_questions:
+                f.write("\n\n---\n\n## 💡 推荐问题\n\n")
+                for i, q in enumerate(recommend_questions, 1):
+                    f.write(f"{i}. {q}\n")
 
         json_file = os.path.join(json_dir, f"{data_prefix}_{input_id}.json")
         with open(json_file, 'w', encoding='utf-8') as f:
             save_data = {
                 self.MODULE_CONFIG[module]['id_field']: input_id,
                 "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                "parsed_fields": parsed_data
+                "parsed_fields": parsed_data,
+                "recommend_questions": recommend_questions or []
             }
             json.dump(save_data, f, ensure_ascii=False, indent=2)
 
@@ -349,46 +449,13 @@ class AIInterpretAgent:
         """根据模块类型解析 AI 输出"""
         if module == "asset":
             result = self.ai_extractor.extract_from_markdown(raw_text)
-            
-            from core.extractors.text_extractor import TextExtractor
-            extractor = TextExtractor()
-            
-            # 提取风险等级
-            risk_level = extractor.extract_table_field_multi(raw_text, ['资产风险等级', '风险等级', '风险级别'])
-            if not risk_level:
-                import re
-                match = re.search(r'(?:资产风险等级|风险等级|风险级别)[：:为]?\s*\*{0,2}(严重|高危|中危|低危)', raw_text)
-                if match:
-                    risk_level = match.group(1)
-            result['risk_level'] = risk_level
-            
-            # 提取资产评分（只获取数值）
-            import re
-            risk_score = extractor.extract_table_field(raw_text, '资产评分')
-            if risk_score:
-                nums = re.findall(r'\d+', str(risk_score))
-                risk_score = int(nums[0]) if nums else None
-            if not risk_score:
-                match = re.search(r'资产评分\s*\*\*(\d+)\*\*', raw_text)
-                if match:
-                    risk_score = int(match.group(1))
-                else:
-                    match = re.search(r'(?:资产评分|风险评分)[：:为]?\s*(\d+)', raw_text)
-                    if match:
-                        risk_score = int(match.group(1))
-            if risk_score is not None:
-                result['risk_score'] = risk_score
-            
-            result['cve_list'] = extractor.extract_cve_list(raw_text)
-            result['vuln_list'] = extractor.extract_vuln_list(raw_text)
-            result['alert_list'] = extractor.extract_alert_list(raw_text)
-            result['event_list'] = extractor.extract_event_list(raw_text)
-            
+
+            # 章节结构完整率（风险速览、风险轨迹、当前威胁）
             config = self.MODULE_CONFIG["asset"]
             missing = [s for s in config["required_sections"] if s not in raw_text]
             result['missing_sections'] = missing
-            result['format_compliance'] = (len(config["required_sections"]) - len(missing)) / len(config["required_sections"])
-            
+            result['format_compliance'] = (len(config["required_sections"]) - len(missing)) / len(config["required_sections"]) if config["required_sections"] else 0
+
             return result
         elif module == "vuln":
             return self._parse_vuln(raw_text)
@@ -399,60 +466,55 @@ class AIInterpretAgent:
         return {}
 
     def _parse_vuln(self, raw_text: str) -> Dict[str, Any]:
-        """解析漏洞解读输出"""
+        """解析漏洞解读输出（动态章节逻辑）"""
         result = {}
         from core.extractors.text_extractor import TextExtractor
         extractor = TextExtractor()
 
-        cvss_score = extractor.extract_table_field(raw_text, "CVSS评分")
-        if not cvss_score:
-            import re
-            match = re.search(r'CVSS[3.1]?\s*评分[：:]\s*([\d.]+)', raw_text)
-            if match:
-                try:
-                    cvss_score = float(match.group(1))
-                except:
-                    pass
-        result['cvss_score'] = cvss_score
+        # 1. 提取核心结论：是否立即处置
+        need_fix_conclusion = self._extract_need_immediate_fix(raw_text)
+        result['need_immediate_fix'] = need_fix_conclusion
 
-        risk_level = extractor.extract_table_field_multi(raw_text, ['风险等级', '漏洞风险等级'])
-        if not risk_level:
-            import re
-            match = re.search(r'(?:风险等级|漏洞风险等级)[：:为]?\s*\*{0,2}(严重|高危|中危|低危)', raw_text)
-            if match:
-                risk_level = match.group(1)
-        result['risk_level'] = risk_level
+        # 2. 根据「是否需要立即处置」结论（是/否）动态确定必检章节
+        required_sections = ["漏洞概要", "漏洞原理", "修复建议"]
+        if need_fix_conclusion == "是":
+            required_sections.append("资产波及范围")
 
-        result['cve_list'] = extractor.extract_cve_list(raw_text)
-        result['affected_assets'] = extractor.extract_asset_list(raw_text)
-
-        config = self.MODULE_CONFIG["vuln"]
-        missing = [s for s in config["required_sections"] if s not in raw_text]
+        # 3. 按章节标题结构匹配（summary / ## 标题），避免正文子串误命中
+        missing = [s for s in required_sections if not self._vuln_section_present(raw_text, s)]
         result['missing_sections'] = missing
-        result['format_compliance'] = (len(config["required_sections"]) - len(missing)) / len(config["required_sections"])
+        result['required_sections'] = required_sections
+        result['format_compliance'] = (len(required_sections) - len(missing)) / len(required_sections) if required_sections else 0
 
         return result
 
     def _parse_alert(self, raw_text: str) -> Dict[str, Any]:
         """解析安全告警解读输出"""
         result = {}
+        import re
         from core.extractors.text_extractor import TextExtractor
         extractor = TextExtractor()
 
-        attack_judgment = extractor.extract_table_field(raw_text, "攻击判定")
-        if not attack_judgment:
-            attack_judgment = extractor.extract_table_field(raw_text, "研判结果")
-        if not attack_judgment:
-            import re
-            match = re.search(r'(?:综合研判|攻击判定|研判结果|最终判定)[：:为]?\s*\*?\*?([^\n]+)', raw_text)
+        # 提取威胁定性（取最后一个匹配）
+        threat_determination = extractor.extract_table_field(raw_text, "威胁定性")
+        if not threat_determination:
+            matches = re.findall(r'威胁定性(?:结论)?[：:]\s*\*{0,2}\s*(正报|误报|不能确认)', raw_text)
+            if matches:
+                threat_determination = matches[-1]
+        result['threat_determination'] = threat_determination if threat_determination else "未获取到"
+
+        # 提取攻击结果
+        attack_result = extractor.extract_table_field(raw_text, "攻击结果")
+        if not attack_result:
+            # 兼容多种格式：
+            # "攻击结果：未知" / "**攻击结果：** 未知" / "攻击结果：**未知**"
+            match = re.search(
+                r'(?:事件级)?攻击结果[：:]\s*\*{0,2}\s*(成功|失败|未知)\s*\*{0,2}',
+                raw_text
+            )
             if match:
-                attack_judgment = match.group(1).strip()
-                attack_judgment = attack_judgment.replace('**', '').strip()
-
-        result['attack_judgment'] = attack_judgment
-
-        affected_assets_data = extractor.extract_affected_asset_analysis(raw_text)
-        result['affected_asset_analysis'] = affected_assets_data
+                attack_result = match.group(1)
+        result['attack_result'] = attack_result if attack_result else "未获取到"
 
         config = self.MODULE_CONFIG["alert"]
         missing = [s for s in config["required_sections"] if s not in raw_text]
@@ -464,18 +526,30 @@ class AIInterpretAgent:
     def _parse_event(self, raw_text: str) -> Dict[str, Any]:
         """解析安全事件解读输出"""
         result = {}
+        import re
         from core.extractors.text_extractor import TextExtractor
         extractor = TextExtractor()
 
-        risk_level = extractor.extract_table_field_multi(raw_text, ['风险等级', '事件风险等级'])
-        if not risk_level:
-            import re
-            match = re.search(r'(?:风险等级|事件风险等级)[：:为]?\s*\*{0,2}(严重|高危|中危|低危)', raw_text)
-            if match:
-                risk_level = match.group(1)
-        result['risk_level'] = risk_level
+        # 提取威胁定性（取最后一个匹配）
+        threat_determination = extractor.extract_table_field(raw_text, "威胁定性")
+        if not threat_determination:
+            matches = re.findall(r'威胁定性(?:结论)?[：:]\s*\*{0,2}\s*(正报|误报|不能确认)', raw_text)
+            if matches:
+                threat_determination = matches[-1]
+        result['threat_determination'] = threat_determination if threat_determination else "未获取到"
 
-        result['affected_assets'] = extractor.extract_asset_list(raw_text)
+        # 提取攻击结果
+        attack_result = extractor.extract_table_field(raw_text, "攻击结果")
+        if not attack_result:
+            # 兼容多种格式：
+            # "攻击结果：未知" / "**攻击结果：** 未知" / "攻击结果：**未知**"
+            match = re.search(
+                r'(?:事件级)?攻击结果[：:]\s*\*{0,2}\s*(成功|失败|未知)\s*\*{0,2}',
+                raw_text
+            )
+            if match:
+                attack_result = match.group(1)
+        result['attack_result'] = attack_result if attack_result else "未获取到"
 
         config = self.MODULE_CONFIG["event"]
         missing = [s for s in config["required_sections"] if s not in raw_text]
@@ -506,6 +580,8 @@ class AIInterpretAgent:
                 print(f"   ❌ {result.error}")
                 return result
 
+            result.input_id = input_id
+
             ai_response = self.call_ai_with_timing(test_case.module, input_id)
 
             if not ai_response["success"]:
@@ -518,84 +594,89 @@ class AIInterpretAgent:
             result.parsed_data = ai_response["parsed_data"]
             result.first_packet_time = ai_response["first_packet_time"]
             result.total_response_time = ai_response["total_time"]
+            result.recommend_questions = ai_response.get("recommend_questions", [])
 
             print(f"   ✅ AI调用成功")
             print(f"   ⏱️ 首包响应: {result.first_packet_time:.2f}秒, 总响应: {result.total_response_time:.2f}秒")
+            if result.recommend_questions:
+                print(f"   💡 推荐问题: {len(result.recommend_questions)}个")
 
-            self.save_results(test_case.module, input_id, result.raw_text, result.parsed_data)
+            self.save_results(test_case.module, input_id, result.raw_text, result.parsed_data, result.recommend_questions)
 
             result.metrics = self._calculate_metrics(test_case.module, result, input_id)
 
-            # 显示资产解读6项指标
-            if test_case.module == "asset":
-                metric_names = [
-                    "risk_level_accuracy", 
-                    "risk_score_accuracy", 
-                    "field_completeness", 
-                    "vuln_list_accuracy", 
-                    "alert_list_accuracy", 
-                    "event_list_accuracy", 
-                    "format_compliance"
-                ]
-                metric_labels = {
-                    "risk_level_accuracy": "1.资产风险等级准确率", 
-                    "risk_score_accuracy": "2.资产风险评分准确率", 
-                    "field_completeness": "3.资产关键字段完整率", 
-                    "vuln_list_accuracy": "4.漏洞列表准确率", 
-                    "alert_list_accuracy": "5.关联告警准确率", 
-                    "event_list_accuracy": "6.关联事件准确率", 
-                    "format_compliance": "7.格式合规率"
-                }
-                for metric_name in metric_names:
-                    if metric_name in result.metrics:
-                        metric_value = result.metrics[metric_name]
-                        display_value = metric_value.get("value", "") or metric_value.get("accuracy", "")
-                        display_score = metric_value.get("score", "")
-                        display_passed = "✅" if metric_value.get("passed", False) else "❌"
-                        label = metric_labels.get(metric_name, metric_name)
-                        if display_score != "":
-                            print(f"   📊 {label}: {display_value} (得分: {display_score}/{metric_value.get('max_score', 5.0)}) {display_passed}")
-                        else:
-                            print(f"   📊 {label}: {display_value} {display_passed}")
+            # 失效样本提示（API查不到业务数据）
+            if result.is_invalid:
+                print(f"   ⚠️ 失效样本: {result.error}")
+                print(f"   ⚠️ 该样本不参与指标计算")
 
-            elif test_case.module == "alert":
-                metric_names = [
-                    "first_packet_time",
-                    "total_response_time",
-                    "attack_judgment_f1",
-                    "affected_asset_accuracy",
-                    "format_compliance"
-                ]
-                metric_labels = {
-                    "first_packet_time": "1.首包响应时间",
-                    "total_response_time": "2.平均响应时间",
-                    "attack_judgment_f1": "3.攻击判定F1",
-                    "affected_asset_accuracy": "4.受影响资产分析正确率",
-                    "format_compliance": "5.格式合规率"
+            # 显示模块专属指标
+            module_display_metrics = {
+                "asset": {
+                    "metrics_order": ["chapter_structure_completeness", "risk_level_accuracy"],
+                    "labels": {
+                        "chapter_structure_completeness": "1.结构完整率",
+                        "risk_level_accuracy": "2.风险等级准确率"
+                    }
+                },
+                "vuln": {
+                    "metrics_order": ["dynamic_structure_completeness"],
+                    "labels": {
+                        "dynamic_structure_completeness": "1.动态结构完整率"
+                    }
+                },
+                "alert": {
+                    "metrics_order": ["chapter_structure_completeness", "threat_determination_accuracy", "attack_result_accuracy"],
+                    "labels": {
+                        "chapter_structure_completeness": "1.6章结构完整率",
+                        "threat_determination_accuracy": "2.威胁定性准确率",
+                        "attack_result_accuracy": "3.攻击结果准确率"
+                    }
+                },
+                "event": {
+                    "metrics_order": ["chapter_structure_completeness", "threat_determination_accuracy", "attack_result_accuracy"],
+                    "labels": {
+                        "chapter_structure_completeness": "1.6章结构完整率",
+                        "threat_determination_accuracy": "2.威胁定性准确率",
+                        "attack_result_accuracy": "3.攻击结果准确率"
+                    }
                 }
-                for metric_name in metric_names:
-                    if metric_name in result.metrics:
-                        metric_value = result.metrics[metric_name]
-                        display_value = metric_value.get("value", "") or metric_value.get("accuracy", "")
-                        display_score = metric_value.get("score", "")
-                        display_passed = "✅" if metric_value.get("passed", False) else "❌"
-                        label = metric_labels.get(metric_name, metric_name)
-                        if display_score != "":
-                            print(f"   📊 {label}: {display_value} (得分: {display_score}/{metric_value.get('max_score', 5.0)}) {display_passed}")
-                        else:
-                            print(f"   📊 {label}: {display_value} {display_passed}")
+            }
 
-            else:
-                # 其他模块显示所有指标
-                for metric_name, metric_value in result.metrics.items():
-                    if isinstance(metric_value, dict):
-                        display_value = metric_value.get("value", "") or metric_value.get("accuracy", "")
-                        display_score = metric_value.get("score", "")
-                        display_passed = "✅" if metric_value.get("passed", False) else "❌"
-                        if display_score != "":
-                            print(f"   📊 {metric_name}: {display_value} (得分: {display_score}/{metric_value.get('max_score', 5.0)}) {display_passed}")
-                        else:
-                            print(f"   📊 {metric_name}: {display_value} {display_passed}")
+            # 通用指标显示
+            for time_metric in ["first_packet_time", "total_response_time"]:
+                if time_metric in result.metrics:
+                    mv = result.metrics[time_metric]
+                    label = "首包响应时间" if time_metric == "first_packet_time" else "总包处理时长"
+                    dv = mv.get("value", "")
+                    ds = mv.get("score", "")
+                    dp = "✅" if mv.get("passed", False) else "❌"
+                    if ds != "":
+                        print(f"   ⏱️ {label}: {dv:.2f}{mv.get('unit', '')} (得分: {ds}/{mv.get('max_score', 5.0)}) {dp}")
+
+            # 模块专属指标显示
+            display_cfg = module_display_metrics.get(test_case.module, {})
+            for metric_key in display_cfg.get("metrics_order", []):
+                if metric_key in result.metrics:
+                    mv = result.metrics[metric_key]
+                    label = display_cfg["labels"].get(metric_key, metric_key)
+                    acc = mv.get("accuracy", mv.get("value", ""))
+                    score = mv.get("score", "")
+
+                    # 优先判断完美得分
+                    is_perfect = mv.get("accuracy") == 1.0 or str(mv.get("accuracy")) == "100.0%" or (mv.get("score") is not None and mv.get("max_score") is not None and mv.get("score") == mv.get("max_score"))
+                    original_passed = mv.get("is_passed", mv.get("passed", False))
+                    dp = "✅" if is_perfect or original_passed else "❌"
+
+                    ai_str = f", AI: {mv.get('ai_value', '')}" if mv.get('ai_value') else ""
+                    api_str = f", API: {mv.get('api_value', '')}" if mv.get('api_value') else ""
+                    print(f"   📊 {label}: {acc}{ai_str}{api_str} {dp}")
+
+                    # 补充显示缺失章节
+                    if metric_key.endswith("structure_completeness") and not mv.get("is_passed", mv.get("passed", False)):
+                        missing_sections = mv.get("detail", {}).get("missing_sections", [])
+                        if missing_sections:
+                            print(f"     👉 缺失章节: {', '.join(missing_sections)}")
 
         except Exception as e:
             result.error = str(e)
@@ -605,466 +686,469 @@ class AIInterpretAgent:
 
     def _calculate_metrics(self, module: str, test_result: TestResult, input_id: str) -> Dict[str, Any]:
         """计算各项指标
-        
-        资产解读指标体系：
-        - 风险等级准确率（多分类）：分值20分，期望0.95，每低于0.05扣5分
-        - 资产风险评分准确率：分值10分，期望100%（误差0）
-        - 资产关键字段完整率：分值10分，期望100%，少一个字段扣10%（即扣1分）
-        - 漏洞列表准确率：分值10分，期望100%
-        - 关联告警准确率：分值5分，期望100%
-        - 关联事件准确率：分值5分，期望100%
-        - 格式合规率：分值5分，期望100%
-        - 首包响应时间：分值5分，期望≤3秒，每超1秒扣1分
-        - 平均响应时间：分值5分，期望≤30秒，每超10秒扣1分
+
+        每个模块的指标体系：
+        - 资产解读：风险等级准确率(加权准确率), 结构完整率(3大章+7子章), 首包响应时间, 总包处理时长
+        - 漏洞解读：动态结构完整率, 首包响应时间, 总包处理时长
+        - 告警解读：6章结构完整率, 威胁定性准确率(加权准确率), 攻击结果准确率(加权准确率), 首包响应时间, 总包处理时长
+        - 事件解读：6章结构完整率, 威胁定性准确率(加权准确率), 攻击结果准确率(加权准确率), 首包响应时间, 总包处理时长
         """
         metrics = {}
-        config = self.MODULE_CONFIG[module]
 
-        # ========== 响应时间指标（多样本统计） ==========
-        # 首包响应时间：期望值<=3秒，分值5分，每超1秒扣1分
-        if test_result.first_packet_time <= 3:
-            first_packet_score = 5.0
-        else:
-            first_packet_score = max(0, 5.0 - (test_result.first_packet_time - 3))
+        # ========== 通用指标：首包响应时间 ==========
         metrics["first_packet_time"] = {
             "value": test_result.first_packet_time,
             "unit": "秒",
-            "score": round(first_packet_score, 2),
-            "max_score": 5.0,
             "threshold": "≤3秒",
             "passed": test_result.first_packet_time <= 3
         }
-        
-        # 平均响应时间：期望值<=30秒，分值5分，每超10秒扣1分
-        if test_result.total_response_time <= 30:
-            total_time_score = 5.0
-        else:
-            total_time_score = max(0, 5.0 - ((test_result.total_response_time - 30) / 10))
+
+        # ========== 通用指标：总包处理时长 ==========
         metrics["total_response_time"] = {
             "value": test_result.total_response_time,
             "unit": "秒",
-            "score": round(total_time_score, 2),
-            "max_score": 5.0,
-            "threshold": "≤30秒",
-            "passed": test_result.total_response_time <= 30
+            "threshold": "≤150秒",
+            "passed": test_result.total_response_time <= 150
         }
 
-        # ========== 资产解读单样本指标 ==========
+        # ========== 资产解读模块 ==========
         if module == "asset":
-            api_data = None
-            if test_result.parsed_data:
-                api_client = AssetAPIClient(self.config)
-                api_data = api_client.get_asset_detail(input_id)
-                if "error" in api_data:
-                    api_data = None
-
-            # --- 2.1 资产风险等级准确率（多分类）---
-            # 分值20分，期望0.95，每低于0.05扣5分
-            if test_result.parsed_data and api_data:
-                risk_level_calc = RiskLevelCalculator()
-                metric_result = risk_level_calc.calculate(test_result.parsed_data, api_data)
-                accuracy = metric_result.accuracy
-                # 计算得分：期望0.95，每低于0.05扣5分
-                if accuracy >= 0.95:
-                    score = 20.0
-                else:
-                    deduction = ((0.95 - accuracy) / 0.05) * 5
-                    score = max(0, 20.0 - deduction)
-                metrics["risk_level_accuracy"] = {
-                    "accuracy": round(accuracy, 4),
-                    "score": round(score, 2),
-                    "max_score": 20.0,
-                    "threshold": "≥0.95",
-                    "passed": accuracy >= 0.95,
-                    "ai_value": test_result.parsed_data.get("risk_level"),
-                    "api_value": api_data.get("risk_level")
-                }
-            else:
-                metrics["risk_level_accuracy"] = {
+            # 1. 结构完整率
+            from core.calculators import StructureCompletenessCalculator
+            try:
+                struct_metric = StructureCompletenessCalculator(module="asset").calculate({"raw_text": test_result.raw_text})
+                metrics["chapter_structure_completeness"] = struct_metric.to_dict()
+            except Exception as e:
+                metrics["chapter_structure_completeness"] = {
+                    "metric_name": "chapter_structure_completeness",
+                    "metric_cn": "结构完整率",
                     "accuracy": 0.0,
-                    "score": 0.0,
-                    "max_score": 20.0,
-                    "threshold": "≥0.95",
-                    "passed": False
+                    "ai_value": "解析异常",
+                    "api_value": "3/3",
+                    "is_passed": False,
+                    "detail": {"error": str(e)}
                 }
 
-            # --- 2.2 资产风险评分准确率 ---
-            # 分值10分，期望100%，分值一样则100%，否则0%
-            risk_score_accuracy = 0.0
-            ai_risk_score = None
-            api_risk_score = None
-            score = 0.0
+            # 2. 风险等级准确率（单样本0/1，多样本取均值即加权准确率）
             if test_result.parsed_data:
-                ai_risk_score = test_result.parsed_data.get("risk_score")
-            if api_data:
-                api_risk_score = api_data.get("risk_score")
-            if ai_risk_score is not None and api_risk_score is not None:
-                try:
-                    if float(ai_risk_score) == float(api_risk_score):
-                        risk_score_accuracy = 1.0
-                        score = 10.0
-                    else:
-                        risk_score_accuracy = 0.0
-                        score = 0.0
-                except (ValueError, TypeError):
-                    pass
-            metrics["risk_score_accuracy"] = {
-                "accuracy": risk_score_accuracy,
-                "score": round(score, 2),
-                "max_score": 10.0,
-                "threshold": "100%",
-                "passed": risk_score_accuracy >= 1.0,
-                "ai_value": ai_risk_score,
-                "api_value": api_risk_score
-            }
-
-            # --- 2.3 资产关键字段完整率 ---
-            # 分值10分，期望100%，少一个字段扣10%（即扣1分）
-            if test_result.parsed_data:
-                required_fields = [
-                    'asset_id', 'ip_address', 'mac_address', 'hostname', 
-                    'asset_type', 'asset_level', 'os_name', 
-                    'organization', 'is_exposed', 'last_online_time'
-                ]
-                present_count = sum(1 for f in required_fields if test_result.parsed_data.get(f))
-                field_completeness = present_count / len(required_fields)
-                # 少一个字段扣10%，即扣1分（因为满分10分）
-                missing_count = len(required_fields) - present_count
-                score = max(0, 10.0 - (missing_count * 1.0))
-            else:
-                field_completeness = 0.0
-                score = 0.0
-            metrics["field_completeness"] = {
-                "value": round(field_completeness, 2),
-                "score": round(score, 2),
-                "max_score": 10.0,
-                "threshold": "100%",
-                "passed": field_completeness >= 1.0,
-                "present_count": present_count if test_result.parsed_data else 0,
-                "total_count": 10
-            }
-
-            # --- 2.4 漏洞列表准确率 ---
-            # 分值10分，期望100%
-            # 规则：
-            # - 如果AI提取了cve_list，用cve_list与API返回的cve_list对比
-            # - 如果AI提取了vuln_list，用vuln_list与API返回的vulnId对比
-            # 准确率 = AI匹配数 / AI返回总数
-            vuln_list_accuracy = 0.0
-            vuln_score = 0.0
-            ai_vulns = []
-            api_vulns = []
-            comparison_type = None
-            
-            ai_cve_list = test_result.parsed_data.get("cve_list", []) if test_result.parsed_data else []
-            ai_vuln_list = test_result.parsed_data.get("vuln_list", []) if test_result.parsed_data else []
-            api_cve_list = api_data.get("cve_list", []) if api_data else []
-            api_vuln_list = api_data.get("vuln_list", []) if api_data else []
-            
-            if ai_cve_list and ai_cve_list is not None:
-                comparison_type = "cve"
-                ai_vulns = ai_cve_list
-                api_vulns = api_cve_list if api_cve_list is not None else []
-            elif ai_vuln_list and ai_vuln_list is not None:
-                comparison_type = "vuln"
-                ai_vulns = ai_vuln_list
-                api_vulns = api_vuln_list if api_vuln_list is not None else []
-            
-            ai_vuln_set = set(str(v) for v in ai_vulns) if ai_vulns else set()
-            api_vuln_set = set(str(v) for v in api_vulns) if api_vulns else set()
-            
-            if ai_vuln_set:
-                matched = len(ai_vuln_set & api_vuln_set)
-                vuln_list_accuracy = matched / len(ai_vuln_set)
-                vuln_score = vuln_list_accuracy * 10.0
-            elif not api_vuln_set:
-                vuln_list_accuracy = 1.0
-                vuln_score = 10.0
-            else:
-                vuln_list_accuracy = 0.0
-                vuln_score = 0.0
-            metrics["vuln_list_accuracy"] = {
-                "accuracy": round(vuln_list_accuracy, 2),
-                "score": round(vuln_score, 2),
-                "max_score": 10.0,
-                "threshold": "100%",
-                "passed": vuln_list_accuracy >= 1.0,
-                "comparison_type": comparison_type,
-                "ai_vuln_count": len(ai_vulns),
-                "api_vuln_count": len(api_vulns)
-            }
-
-            # --- 2.5 关联告警准确率 ---
-            # 分值5分，期望100%
-            # 准确率 = AI匹配数 / AI返回总数
-            alert_list_accuracy = 0.0
-            alert_score = 0.0
-            ai_alerts = test_result.parsed_data.get("alert_list", []) if test_result.parsed_data else []
-            api_alerts = api_data.get("alert_list", []) if api_data else []
-            ai_alerts = ai_alerts if ai_alerts is not None else []
-            api_alerts = api_alerts if api_alerts is not None else []
-            ai_alert_set = set(str(a) for a in ai_alerts)
-            api_alert_set = set(str(a) for a in api_alerts)
-            
-            if ai_alert_set:
-                matched = len(ai_alert_set & api_alert_set)
-                alert_list_accuracy = matched / len(ai_alert_set)
-                alert_score = alert_list_accuracy * 5.0
-            elif not api_alert_set:
-                alert_list_accuracy = 1.0
-                alert_score = 5.0
-            else:
-                alert_list_accuracy = 0.0
-                alert_score = 0.0
-            metrics["alert_list_accuracy"] = {
-                "accuracy": round(alert_list_accuracy, 2),
-                "score": round(alert_score, 2),
-                "max_score": 5.0,
-                "threshold": "100%",
-                "passed": alert_list_accuracy >= 1.0,
-                "ai_alert_count": len(ai_alerts),
-                "api_alert_count": len(api_alerts)
-            }
-
-            # --- 2.6 关联事件准确率 ---
-            # 分值5分，期望100%
-            # 准确率 = AI匹配数 / AI返回总数
-            event_list_accuracy = 0.0
-            event_score = 0.0
-            ai_events = test_result.parsed_data.get("event_list", []) if test_result.parsed_data else []
-            api_events = api_data.get("event_list", []) if api_data else []
-            ai_events = ai_events if ai_events is not None else []
-            api_events = api_events if api_events is not None else []
-            ai_event_set = set(str(e) for e in ai_events)
-            api_event_set = set(str(e) for e in api_events)
-            
-            if ai_event_set:
-                matched = len(ai_event_set & api_event_set)
-                event_list_accuracy = matched / len(ai_event_set)
-                event_score = event_list_accuracy * 5.0
-            elif not api_event_set:
-                event_list_accuracy = 1.0
-                event_score = 5.0
-            else:
-                event_list_accuracy = 0.0
-                event_score = 0.0
-            metrics["event_list_accuracy"] = {
-                "accuracy": round(event_list_accuracy, 2),
-                "score": round(event_score, 2),
-                "max_score": 5.0,
-                "threshold": "100%",
-                "passed": event_list_accuracy >= 1.0,
-                "ai_event_count": len(ai_events),
-                "api_event_count": len(api_events)
-            }
-
-            # --- 2.7 格式合规率 ---
-            # 分值5分，期望100%
-            if test_result.parsed_data:
-                format_compliance = test_result.parsed_data.get("format_compliance", 0)
-            else:
-                format_compliance = 0
-            metrics["format_compliance"] = {
-                "value": round(format_compliance, 2),
-                "score": round(format_compliance * 5.0, 2),
-                "max_score": 5.0,
-                "threshold": "100%",
-                "passed": format_compliance >= 1.0
-            }
-
-        elif module == "alert":
-            api_client = AlertAPIClient(self.config)
-
-            # --- 1. 攻击判定F1（多分类）---
-            # 分值30分，期望≥0.95，每低于0.05扣5分
-            # 使用 get_alert_result API 获取真实研判结果
-            ai_attack_judgment = None
-            api_attack_judgment = None
-            if test_result.parsed_data:
-                ai_attack_judgment = test_result.parsed_data.get("attack_judgment")
-
-            api_result = api_client.get_alert_result(input_id)
-            if api_result and "error" not in api_result:
-                api_attack_judgment = api_result.get("attack_judgment")
-
-            attack_judgment_match = 0
-            if ai_attack_judgment and api_attack_judgment:
-                if ai_attack_judgment.strip() == api_attack_judgment.strip():
-                    attack_judgment_match = 1.0
-                elif "成功" in ai_attack_judgment and "成功" in api_attack_judgment:
-                    attack_judgment_match = 1.0
-                elif "失败" in ai_attack_judgment and "失败" in api_attack_judgment:
-                    attack_judgment_match = 1.0
-                elif "未知" in ai_attack_judgment and "未知" in api_attack_judgment:
-                    attack_judgment_match = 1.0
-                elif ai_attack_judgment in api_attack_judgment or api_attack_judgment in ai_attack_judgment:
-                    attack_judgment_match = 0.5
-
-            metrics["attack_judgment_f1"] = {
-                "accuracy": round(attack_judgment_match, 2),
-                "score": round(attack_judgment_match * 30.0, 2),
-                "max_score": 30.0,
-                "threshold": "≥0.95",
-                "passed": attack_judgment_match >= 0.95,
-                "ai_value": ai_attack_judgment,
-                "api_value": api_attack_judgment
-            }
-
-            # --- 2. 受影响资产分析正确率 ---
-            # 分值10分，期望100%
-            # AI解读的10个字段与API返回的真实资产详情对比
-            # 字段：资产ID、IP地址、国家、主机名、资产类型、资产等级、操作系统、资产状态、是否暴露面、最后上线时间
-            ai_affected_assets = []
-            if test_result.parsed_data:
-                affected_asset_analysis = test_result.parsed_data.get("affected_asset_analysis", {})
-                if isinstance(affected_asset_analysis, list):
-                    ai_affected_assets = affected_asset_analysis
-                elif isinstance(affected_asset_analysis, dict):
-                    if affected_asset_analysis.get("present_count", 0) > 0:
-                        ai_affected_assets = [affected_asset_analysis]
-
-            ai_asset_ids = []
-            for asset in ai_affected_assets:
-                if isinstance(asset, dict):
-                    asset_id = asset.get("asset_id")
-                    if asset_id:
-                        ai_asset_ids.append(asset_id)
-
-            api_related_assets = []
-            if ai_asset_ids:
-                api_related_assets = api_client.get_related_asset_details(ai_asset_ids)
-
-            field_match_count = 0
-            total_field_count = 0
-            field_details = []
-
-            required_fields = [
-                "asset_id", "ip_address", "country", "hostname",
-                "asset_type", "asset_level", "security_domain",
-                "os_name", "machine_room", "responsible_person",
-                "asset_status", "is_exposed", "last_online_time"
-            ]
-
-            api_asset_details_cache = {}
-            asset_detail_cache = {}
-
-            def get_asset_detail_from_api(asset_id: str) -> Dict[str, Any]:
-                """获取资产详情（调用资产详情接口）"""
-                if asset_id in asset_detail_cache:
-                    return asset_detail_cache[asset_id]
-                
-                asset_client = AssetAPIClient(self.config)
-                detail = asset_client.get_asset_detail(asset_id)
-                
-                if "error" not in detail:
-                    asset_detail_cache[asset_id] = detail
+                api_data = self._asset_client.get_asset_detail(input_id)
+                if api_data and "error" not in api_data:
+                    from core.calculators import RiskLevelCalculator
+                    try:
+                        risk_metric = RiskLevelCalculator().calculate(test_result.parsed_data, api_data)
+                        metrics["risk_level_accuracy"] = risk_metric.to_dict()
+                    except Exception as e:
+                        metrics["risk_level_accuracy"] = {
+                            "metric_name": "risk_level_accuracy",
+                            "metric_cn": "风险等级准确率",
+                            "score": 0.0, "max_score": 20.0, "accuracy": 0.0,
+                            "ai_value": test_result.parsed_data.get("risk_level"),
+                            "api_value": api_data.get("risk_level"),
+                            "is_passed": False,
+                            "detail": {"error": str(e)}
+                        }
                 else:
-                    asset_detail_cache[asset_id] = {}
-                
-                return asset_detail_cache[asset_id]
+                    test_result.is_invalid = True
+                    test_result.error = f"API未查询到资产 {input_id} 的信息，属于失效样本"
 
-            def get_api_value(api_assets: list, asset_id: str, field: str) -> Any:
-                """根据资产ID和字段名从API数据中获取对应值"""
-                for api_asset in api_assets:
-                    if isinstance(api_asset, dict) and api_asset.get("asset_id") == asset_id:
-                        if field == "organization":
-                            return api_asset.get("organization", "")
-                        elif field == "asset_status":
-                            return "在线" if api_asset.get("ip_address") else "离线"
-                        elif field == "is_exposed":
-                            is_key = api_asset.get("is_exposed", "")
-                            if is_key == "是":
-                                return "已暴露"
-                            elif is_key == "否":
-                                return "未暴露"
-                            return is_key
-                        elif field == "last_online_time":
-                            asset_detail = get_asset_detail_from_api(asset_id)
-                            if asset_detail:
-                                return asset_detail.get("last_online_time", "")
-                            return ""
-                        elif field in ["country", "security_domain", "machine_room", "responsible_person"]:
-                            # 这些字段可能在API中没有直接对应，先返回空字符串
-                            return ""
-                        else:
-                            return api_asset.get(field)
-                return None
+        # ========== 漏洞解读模块（逻辑已移至 _parse_vuln） ==========
+        elif module == "vuln":
+            # 动态结构完整率的计算已在 _parse_vuln 中完成，这里只需传递
+            if test_result.parsed_data and "format_compliance" in test_result.parsed_data:
+                metrics["dynamic_structure_completeness"] = {
+                    "metric_name": "dynamic_structure_completeness",
+                    "metric_cn": "动态结构完整率",
+                    "accuracy": test_result.parsed_data["format_compliance"],
+                    "ai_value": f'{len(test_result.parsed_data.get("required_sections", [])) - len(test_result.parsed_data.get("missing_sections", []))}/{len(test_result.parsed_data.get("required_sections", []))}',
+                    "api_value": "动态章节",
+                    "is_passed": test_result.parsed_data["format_compliance"] == 1.0,
+                    "detail": test_result.parsed_data
+                }
 
-            def normalize_exposed_value(value: str) -> str:
-                """标准化是否暴露面字段"""
-                if not value:
-                    return ""
-                value_lower = str(value).strip().lower()
-                if value_lower in ["未暴露", "否", "未", "no", "false"]:
-                    return "未暴露"
-                elif value_lower in ["已暴露", "是", "已", "yes", "true"]:
-                    return "已暴露"
-                return str(value).strip()
+        # ========== 安全告警解读模块 ==========
+        elif module == "alert":
+            from core.calculators import StructureCompletenessCalculator, ThreatDeterminationCalculator, AttackResultCalculator
 
-            for ai_asset in ai_affected_assets:
-                if isinstance(ai_asset, dict):
-                    ai_asset_id = ai_asset.get("asset_id")
-                    for field in required_fields:
-                        total_field_count += 1
-                        ai_value = ai_asset.get(field)
-                        api_value = get_api_value(api_related_assets, ai_asset_id, field)
+            # 1. 6章结构完整率
+            try:
+                struct_metric = StructureCompletenessCalculator(module="alert").calculate({"raw_text": test_result.raw_text})
+                metrics["chapter_structure_completeness"] = struct_metric.to_dict()
+            except Exception as e:
+                metrics["chapter_structure_completeness"] = {
+                    "metric_name": "chapter_structure_completeness",
+                    "metric_cn": "6章结构完整率",
+                    "score": 0.0, "max_score": 5.0, "accuracy": 0.0,
+                    "ai_value": "解析异常", "api_value": "6/6",
+                    "is_passed": False,
+                    "detail": {"error": str(e)}
+                }
 
-                        if field == "is_exposed":
-                            ai_value_normalized = normalize_exposed_value(ai_value)
-                            api_value_normalized = normalize_exposed_value(api_value)
-                            ai_value = ai_value_normalized
-                            api_value = api_value_normalized
+            # 2. 威胁定性准确率 + 攻击结果准确率
+            api_detail = self._alert_client.get_alarm_detail_by_id(input_id)
+            api_valid = api_detail and "error" not in api_detail
+            if not api_valid:
+                test_result.is_invalid = True
+                test_result.error = f"API未查询到告警 {input_id} 的信息，属于失效样本"
+            if test_result.parsed_data and api_valid:
+                try:
+                    td_metric = ThreatDeterminationCalculator().calculate(test_result.parsed_data, api_detail)
+                    metrics["threat_determination_accuracy"] = td_metric.to_dict()
+                except Exception as e:
+                    metrics["threat_determination_accuracy"] = {
+                        "metric_name": "threat_determination_accuracy",
+                        "metric_cn": "威胁定性准确率",
+                        "score": 0.0, "max_score": 100.0, "accuracy": 0.0,
+                        "ai_value": test_result.parsed_data.get("threat_determination"),
+                        "api_value": api_detail.get("threat_determination"),
+                        "is_passed": False,
+                        "detail": {"error": str(e)}
+                    }
 
-                        if ai_value and api_value:
-                            if str(ai_value).strip() == str(api_value).strip():
-                                field_match_count += 1
-                                field_details.append({"field": field, "asset_id": ai_asset_id, "status": "match", "ai": ai_value, "api": api_value})
-                            else:
-                                field_details.append({"field": field, "asset_id": ai_asset_id, "status": "mismatch", "ai": ai_value, "api": api_value})
-                        elif not ai_value and not api_value:
-                            field_match_count += 1
-                            field_details.append({"field": field, "asset_id": ai_asset_id, "status": "both_empty", "ai": None, "api": None})
-                        else:
-                            field_details.append({"field": field, "asset_id": ai_asset_id, "status": "missing", "ai": ai_value, "api": api_value})
+                try:
+                    ar_metric = AttackResultCalculator().calculate(test_result.parsed_data, api_detail)
+                    metrics["attack_result_accuracy"] = ar_metric.to_dict()
+                except Exception as e:
+                    metrics["attack_result_accuracy"] = {
+                        "metric_name": "attack_result_accuracy",
+                        "metric_cn": "攻击结果准确率",
+                        "score": 0.0, "max_score": 100.0, "accuracy": 0.0,
+                        "ai_value": test_result.parsed_data.get("attack_result"),
+                        "api_value": api_detail.get("attack_result"),
+                        "is_passed": False,
+                        "detail": {"error": str(e)}
+                    }
 
-            field_accuracy = field_match_count / total_field_count if total_field_count > 0 else 0
-            metrics["affected_asset_accuracy"] = {
-                "accuracy": round(field_accuracy, 2),
-                "score": round(field_accuracy * 10.0, 2),
-                "max_score": 10.0,
-                "threshold": "100%",
-                "passed": field_accuracy >= 1.0,
-                "match_count": field_match_count,
-                "total_count": total_field_count,
-                "ai_asset_count": len(ai_affected_assets),
-                "api_asset_count": len(api_related_assets),
-                "ai_asset_ids": ai_asset_ids,
-                "field_details": field_details
-            }
+            # 3. 推荐问题质量评估（有推荐问题时才评估）
+            if test_result.recommend_questions:
+                from core.calculators.recommend_question_calc import RecommendQuestionCalculator
+                rq_metric = RecommendQuestionCalculator().calculate(
+                    questions=test_result.recommend_questions,
+                    raw_report=test_result.raw_text,
+                    module="alert"
+                )
+                metrics["recommend_question_quality"] = rq_metric
 
-            # --- 3. 格式合规率 ---
-            # 分值5分，期望100%
-            # 10个必需章节：分析摘要、攻击概览、源IP分析、目的IP分析、数据包内容分析、取证分析、受影响资产分析、情报分析、关联安全告警分析、处置建议
-            # 少一个章节扣10%（即扣0.5分）
-            if test_result.parsed_data:
-                format_compliance = test_result.parsed_data.get("format_compliance", 0)
-                missing_sections = test_result.parsed_data.get("missing_sections", [])
-                missing_count = len(missing_sections) if isinstance(missing_sections, list) else 0
-                score = max(0, 5.0 - (missing_count * 0.5))
-            else:
-                format_compliance = 0
-                score = 0
+        # ========== 安全事件解读模块 ==========
+        elif module == "event":
+            from core.calculators import StructureCompletenessCalculator, ThreatDeterminationCalculator, AttackResultCalculator
 
-            metrics["format_compliance"] = {
-                "value": round(format_compliance, 2),
-                "score": round(score, 2),
-                "max_score": 5.0,
-                "threshold": "100%",
-                "passed": format_compliance >= 1.0,
-                "missing_sections": missing_sections if test_result.parsed_data else []
-            }
+            # 1. 6章结构完整率
+            try:
+                struct_metric = StructureCompletenessCalculator(module="event").calculate({"raw_text": test_result.raw_text})
+                metrics["chapter_structure_completeness"] = struct_metric.to_dict()
+            except Exception as e:
+                metrics["chapter_structure_completeness"] = {
+                    "metric_name": "chapter_structure_completeness",
+                    "metric_cn": "6章结构完整率",
+                    "score": 0.0, "max_score": 5.0, "accuracy": 0.0,
+                    "ai_value": "解析异常", "api_value": "6/6",
+                    "is_passed": False,
+                    "detail": {"error": str(e)}
+                }
 
+            # 2. 威胁定性准确率 + 攻击结果准确率
+            api_detail = self._event_client.get_event_detail_by_id(input_id)
+            api_valid = api_detail and "error" not in api_detail
+            if not api_valid:
+                test_result.is_invalid = True
+                test_result.error = f"API未查询到事件 {input_id} 的信息，属于失效样本"
+            if test_result.parsed_data and api_valid:
+                try:
+                    td_metric = ThreatDeterminationCalculator().calculate(test_result.parsed_data, api_detail)
+                    metrics["threat_determination_accuracy"] = td_metric.to_dict()
+                except Exception as e:
+                    metrics["threat_determination_accuracy"] = {
+                        "metric_name": "threat_determination_accuracy",
+                        "metric_cn": "威胁定性准确率",
+                        "score": 0.0, "max_score": 100.0, "accuracy": 0.0,
+                        "ai_value": test_result.parsed_data.get("threat_determination"),
+                        "api_value": api_detail.get("threat_determination"),
+                        "is_passed": False,
+                        "detail": {"error": str(e)}
+                    }
+
+                try:
+                    ar_metric = AttackResultCalculator().calculate(test_result.parsed_data, api_detail)
+                    metrics["attack_result_accuracy"] = ar_metric.to_dict()
+                except Exception as e:
+                    metrics["attack_result_accuracy"] = {
+                        "metric_name": "attack_result_accuracy",
+                        "metric_cn": "攻击结果准确率",
+                        "score": 0.0, "max_score": 100.0, "accuracy": 0.0,
+                        "ai_value": test_result.parsed_data.get("attack_result"),
+                        "api_value": api_detail.get("attack_result"),
+                        "is_passed": False,
+                        "detail": {"error": str(e)}
+                    }
+
+            # 3. 推荐问题质量评估（有推荐问题时才评估）
+            if test_result.recommend_questions:
+                from core.calculators.recommend_question_calc import RecommendQuestionCalculator
+                rq_metric = RecommendQuestionCalculator().calculate(
+                    questions=test_result.recommend_questions,
+                    raw_report=test_result.raw_text,
+                    module="event"
+                )
+                metrics["recommend_question_quality"] = rq_metric
+
+        self._mark_extraction_failures(metrics, test_result.parsed_data)
         return metrics
+
+    def _mark_extraction_failures(self, metrics: Dict[str, Any], parsed_data: Dict[str, Any]) -> None:
+        """标记提取失败的指标（AI未获取到值或计算器异常），这些不计入平均准确率
+
+        判定规则：
+        1. detail中含error字段 → 计算器异常（适用于所有指标）
+        2. AI值为"未获取到"/"无法判断"/空 → 提取失败（适用于特定准确率指标）
+        两种情况均设置 accuracy=None, is_extraction_failure=True
+        """
+        invalid_values = {"未获取到", "无法判断", "", None}
+
+        # 第一遍：检查所有指标的计算器异常（detail中有error）
+        for metric_key, metric in metrics.items():
+            detail = metric.get("detail", {})
+            if isinstance(detail, dict) and "error" in detail:
+                metric["accuracy"] = None
+                metric["score"] = None
+                metric["is_passed"] = False
+                metric["is_extraction_failure"] = True
+                detail["extraction_failure"] = f"{metric.get('metric_cn', metric_key)}计算异常: {detail['error']}"
+
+        # 第二遍：检查特定准确率指标的AI值提取失败
+        extraction_check_map = {
+            "risk_level_accuracy": ("risk_level", "风险等级"),
+            "threat_determination_accuracy": ("threat_determination", "威胁定性"),
+            "attack_result_accuracy": ("attack_result", "攻击结果"),
+        }
+
+        for metric_key, (data_field, field_cn) in extraction_check_map.items():
+            if metric_key not in metrics:
+                continue
+            metric = metrics[metric_key]
+            if metric.get("is_extraction_failure"):
+                continue  # 已在第一遍中标记
+            ai_value = parsed_data.get(data_field) if parsed_data else None
+            if ai_value in invalid_values:
+                metric["accuracy"] = None
+                metric["score"] = None
+                metric["is_passed"] = False
+                metric["is_extraction_failure"] = True
+                detail = metric.get("detail", {})
+                if not isinstance(detail, dict):
+                    detail = {}
+                    metric["detail"] = detail
+                detail["extraction_failure"] = f"AI未提取到{field_cn}值"
+
+    def _extract_one_sentence_summary(self, raw_text: str) -> str:
+        """从AI解读文本中提取一句话总结
+
+        优先从 Markdown 表格或章节标题中提取，
+        如果找不到则取前 200 个字符作为摘要。
+        """
+        if not raw_text:
+            return ""
+
+        import re
+
+        # 预处理：去除 ** 粗体标记，统一格式（兼容 **一句话总结：** / **一句话总结**： / 一句话总结： 等变体）
+        clean_text = raw_text.replace('**', '')
+
+        # 1. 尝试从"一句话总结"或类似标题后提取（在 clean_text 上匹配，避免 ** 干扰）
+        summary_patterns = [
+            r'(?:一句话总结|核心结论|分析摘要|事件概述)\s*[：:为]?\s*(.+?)(?:\n\n|\n#{1,6}\s|\Z)',
+        ]
+        for pattern in summary_patterns:
+            match = re.search(pattern, clean_text, re.IGNORECASE | re.DOTALL)
+            if match:
+                summary = match.group(1).strip().replace('\n', '')
+                if len(summary) > 10:
+                    return summary[:300]
+
+        # 2. 尝试从表格中提取第一个描述性段落
+        paragraph_pattern = r'[>|]\s*[*]*(?:分析|描述|总结|概述)[*]*[：:]\s*([^\n|]+)'
+        match = re.search(paragraph_pattern, raw_text)
+        if match:
+            return match.group(1).strip()[:300]
+
+        # 3. 取正文第一段有意义的文字（跳过元数据行如 event_id / 时间 等）
+        lines = raw_text.split('\n')
+        for line in lines:
+            line = line.strip()
+            # 跳过标题、空行、纯符号行、元数据行
+            if not line or line.startswith('#') or line.startswith('---') or line.startswith('|'):
+                continue
+            if re.match(r'^\*{2}(?:event_id|事件编号|alert_id|告警编号|时间|生成时间)\*{2}', line):
+                continue
+            if len(line) > 15:
+                return line[:300]
+
+        # 4. 最终降级：取前200字符
+        return raw_text.strip()[:200]
+
+    def _vuln_section_present(self, raw_text: str, section_name: str) -> bool:
+        """检查漏洞报告是否包含指定折叠/标题章节（非正文子串匹配）"""
+        import re
+
+        escaped = re.escape(section_name)
+        patterns = [
+            rf'第\s*\d+\s*章[：:]\s*{escaped}',
+            rf'##\s*(?:第\s*\d+\s*章[：:]\s*)?{escaped}',
+            rf'<summary>[^<]*{escaped}',
+        ]
+        for pattern in patterns:
+            if re.search(pattern, raw_text):
+                return True
+        return False
+
+    def _extract_need_immediate_fix(self, raw_text: str) -> str:
+        """从漏洞解读文本中提取「是否需要立即处置」结论，返回 是 / 否 / 无法判断"""
+        if not raw_text:
+            return ""
+
+        import re
+
+        # 1. 规范权威源：HTML 注释 <!-- VULN_CONCLUSION:是/否 -->
+        comment_match = re.search(
+            r'<!--\s*VULN_CONCLUSION\s*:\s*(是|否)\s*-->',
+            raw_text, re.IGNORECASE
+        )
+        if comment_match:
+            return comment_match.group(1)
+
+        # 2. 研判结论行的显式取值（兼容多种格式）
+        # 格式1: **是否需要立即处置：**<span ...>否</span>
+        # 格式2: 是否需要立即处置：否
+        # 格式3: 是否需要立即处置：**否**
+        inline_patterns = [
+            r'是否需要立即处置[：:为]?\s*\*{0,2}\s*(?:<\s*span[^>]*>\s*)?(是|否)(?:\s*</\s*span>)?\s*\*{0,2}',
+            r'是否需要立即处置[：:为]?\s*\*{0,2}(是|否)\*{0,2}',
+        ]
+        for pattern in inline_patterns:
+            match = re.search(pattern, raw_text, re.IGNORECASE | re.DOTALL)
+            if match:
+                return match.group(1)
+
+        # 3. 兼容旧表述（需要/不需要），同样兼容 ** 和 span 包裹
+        legacy_match = re.search(
+            r'是否需要立即处置[：:为]?\s*\*{0,2}\s*(?:<\s*span[^>]*>\s*)?(需要|不需要)(?:\s*</\s*span>)?\s*\*{0,2}',
+            raw_text, re.IGNORECASE | re.DOTALL
+        )
+        if legacy_match:
+            return "是" if legacy_match.group(1) == "需要" else "否"
+
+        legacy_match2 = re.search(
+            r'是否需要立即处置[：:为]?\s*\*{0,2}(需要|不需要)\*{0,2}',
+            raw_text, re.IGNORECASE
+        )
+        if legacy_match2:
+            return "是" if legacy_match2.group(1) == "需要" else "否"
+
+        return "无法判断"
+
+    def _check_stability_with_llm_judge(
+        self, summary1: str, summary2: str, alert_description: str
+    ) -> Dict[str, Any]:
+        """使用LLM裁判判断两次解读的核心结论是否一致
+
+        Args:
+            summary1: 第一次解读的一句话总结
+            summary2: 第二次解读的一句话总结
+            alert_description: 告警/事件描述（供裁判参考）
+
+        Returns:
+            {"passed": bool, "inconsistencies": list, "judge_response": str}
+        """
+        from core.llm_client import LLMClient
+
+        system_prompt = """你是一个严格的裁判，负责判断两次AI解读的"一句话总结"核心结论是否一致。
+
+判断规则：
+1. 如果两次总结的核心意思一致（威胁类型、攻击结果、关键实体等）→ 稳定
+2. 如果核心意思有实质性差异（结论相反、威胁类型不同、关键实体不同）→ 不稳定
+3. 如果两次总结表达方式不同但核心结论相同 → 算稳定
+4. 如果某次总结内容为空或无法提取有效信息 → 算不稳定
+
+请严格按照以下JSON格式输出（不要输出其他内容）：
+{
+    "is_stable": true/false,
+    "reason": "简要说明判断理由",
+    "inconsistencies": ["如果有不一致，列出具体不一致之处"]
+}
+"""
+
+        user_prompt = f"""## 告警/事件描述
+{alert_description[:500]}
+
+## 第一次解读的一句话总结
+{summary1[:500]}
+
+## 第二次解读的一句话总结
+{summary2[:500]}
+
+请判断两次总结的核心结论是否一致。
+"""
+
+        try:
+            llm = LLMClient()
+            response = llm.call_llm(system_prompt, user_prompt, max_tokens=1024)
+            if not response:
+                return {"passed": False, "inconsistencies": ["LLM裁判未响应"], "judge_response": ""}
+
+            import json, re
+            # 尝试提取 JSON
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                return {
+                    "passed": result.get("is_stable", False),
+                    "inconsistencies": result.get("inconsistencies", []),
+                    "judge_response": response
+                }
+
+            # 如果没找到JSON，通过关键词判断
+            is_stable = "is_stable\": true" in response or "稳定" in response[:50]
+            return {
+                "passed": is_stable,
+                "inconsistencies": [] if is_stable else ["无法解析裁判响应"],
+                "judge_response": response
+            }
+        except Exception as e:
+            return {"passed": False, "inconsistencies": [f"LLM裁判异常: {e}"], "judge_response": ""}
+
+    def _check_vuln_stability(self, need_fix1: str, need_fix2: str) -> Dict[str, Any]:
+        """直接比较两次漏洞"是否需要立即处置"结论是否一致
+
+        Args:
+            need_fix1: 第一次解读的结论
+            need_fix2: 第二次解读的结论
+
+        Returns:
+            {"passed": bool, "inconsistencies": list}
+        """
+        if not need_fix1 or not need_fix2:
+            return {"passed": False, "inconsistencies": ["某次未提取到结论"]}
+
+        # 归一化为 是/否
+        def normalize(text: str) -> str:
+            text = text.strip()
+            if text in ["是", "需要", "需要立即处置", "需要立即修复", "紧急"]:
+                return "是"
+            if text in ["否", "不需要", "无需", "无需处置", "暂缓"]:
+                return "否"
+            return text
+
+        norm1 = normalize(need_fix1)
+        norm2 = normalize(need_fix2)
+
+        if norm1 == norm2:
+            return {"passed": True, "inconsistencies": []}
+        else:
+            return {
+                "passed": False,
+                "inconsistencies": [
+                    f"第一次结论为「{need_fix1}」，第二次结论为「{need_fix2}」"
+                ]
+            }
 
     def run_module_tests(self, module: str, test_cases: Optional[List[TestCase]] = None) -> List[TestResult]:
         """执行指定模块的测试用例"""
@@ -1094,109 +1178,128 @@ class AIInterpretAgent:
 
     def _print_module_summary(self, module: str, results: List[TestResult]) -> None:
         """打印模块测试摘要"""
-        success_count = sum(1 for r in results if r.success)
+        valid_count = sum(1 for r in results if r.success and not r.is_invalid)
+        error_count = sum(1 for r in results if not r.success)
+        invalid_count = sum(1 for r in results if r.is_invalid)
         total_count = len(results)
 
         print(f"\n{'='*60}")
         print(f"📊 {self.MODULE_CONFIG[module]['name']} 模块测试摘要")
         print(f"{'='*60}")
         print(f"   总用例数: {total_count}")
-        print(f"   成功: {success_count}, 失败: {total_count - success_count}")
-        print(f"   成功率: {success_count/total_count*100:.1f}%" if total_count > 0 else "   成功率: N/A")
+        print(f"   ✅ 有效样本: {valid_count}（参与指标计算）")
+        print(f"   ❌ 失败样本: {error_count}（AI调用失败）")
+        print(f"   ⚠️ 失效样本: {invalid_count}（API查不到业务数据）")
+        if valid_count > 0:
+            print(f"   有效率: {valid_count/total_count*100:.1f}%")
+            # 列出有效样本ID
+            valid_ids = [r.input_id for r in results if r.success and not r.is_invalid]
+            print(f"   有效样本ID: {', '.join(valid_ids)}")
+        if invalid_count > 0:
+            invalid_ids = [r.input_id for r in results if r.is_invalid]
+            print(f"   失效样本ID: {', '.join(invalid_ids)}")
 
         # 输出多样本整体统计
-        if module in ["asset", "alert"]:
+        if module in ["asset", "alert", "event", "vuln"]:
             multi_sample_stats = self._calculate_multi_sample_stats(module, results)
             if multi_sample_stats:
                 print(f"\n📈 多样本整体统计")
                 print(f"   {'-'*50}")
                 if multi_sample_stats.get("avg_first_packet_time") is not None:
-                    print(f"   首包响应时间: {multi_sample_stats['avg_first_packet_time']:.2f}秒")
+                    print(f"   平均首包响应时间: {multi_sample_stats['avg_first_packet_time']:.2f}秒")
                 if multi_sample_stats.get("avg_total_response_time") is not None:
-                    print(f"   平均响应时间: {multi_sample_stats['avg_total_response_time']:.2f}秒")
-                if module == "asset" and multi_sample_stats.get("risk_level_macro_f1") is not None:
-                    print(f"   风险等级宏平均F1: {multi_sample_stats['risk_level_macro_f1']:.4f}")
-                if module == "alert" and multi_sample_stats.get("attack_judgment_macro_f1") is not None:
-                    print(f"   攻击判定宏平均F1: {multi_sample_stats['attack_judgment_macro_f1']:.4f}")
+                    print(f"   平均总包处理时长: {multi_sample_stats['avg_total_response_time']:.2f}秒")
+
+                # 打印所有指标的平均准确率
+                if multi_sample_stats.get("avg_accuracies"):
+                    print(f"\n   各项指标准确率")
+                    for key, metric in multi_sample_stats["avg_accuracies"].items():
+                        excl = f"（排除{metric['excluded_count']}个提取失败）" if metric.get('excluded_count') else ""
+                        print(f"     - {metric['metric_cn']}: {metric['avg_accuracy']:.1%}{excl}")
+
+                # 推荐问题质量：单独展示各样本平均（不混入指标均值）
+                valid_results_for_rq = [r for r in results if r.success and r.metrics and not r.is_invalid]
+                rq_scores = [
+                    r.metrics["recommend_question_quality"]["accuracy"]
+                    for r in valid_results_for_rq
+                    if "recommend_question_quality" in r.metrics
+                    and r.metrics["recommend_question_quality"].get("accuracy") is not None
+                ]
+                if rq_scores:
+                    avg_rq = sum(rq_scores) / len(rq_scores)
+                    # 统计合格数（三维度全部≥0.8）
+                    qualified_count = sum(
+                        1 for r in valid_results_for_rq
+                        if r.metrics and "recommend_question_quality" in r.metrics
+                        and r.metrics["recommend_question_quality"].get("is_qualified")
+                    )
+                    print(f"     - 推荐问题质量: 合格{qualified_count}/{len(rq_scores)}个（均值{avg_rq:.2f}，0~1）")
+
                 print(f"   {'-'*50}")
 
     def _calculate_multi_sample_stats(self, module: str, results: List[TestResult]) -> Dict[str, Any]:
-        """计算多样本整体统计"""
+        """计算多样本整体统计
+
+        所有指标统一使用加权准确率（正确样本数/总样本数，0~1）。
+        宏平均F1需各类别≥30样本且均衡分布，不适合真实业务不均衡数据，暂不采用。
+        """
         stats = {}
-        success_results = [r for r in results if r.success and r.parsed_data]
+        valid_results = [r for r in results if r.success and r.metrics and not r.is_invalid]
+        if not valid_results:
+            return stats
 
         # ========== 1. 响应时间统计 ==========
-        first_packet_times = [r.first_packet_time for r in success_results]
-        total_times = [r.total_response_time for r in success_results]
+        first_packet_times = [r.first_packet_time for r in valid_results]
+        total_times = [r.total_response_time for r in valid_results]
         if first_packet_times:
             stats["avg_first_packet_time"] = sum(first_packet_times) / len(first_packet_times)
         if total_times:
             stats["avg_total_response_time"] = sum(total_times) / len(total_times)
 
-        # ========== 2. 资产风险等级宏平均F1 ==========
-        if module == "asset" and success_results:
-            all_parsed_data = []
-            all_api_data = []
-            
-            # 收集所有AI解析数据和API标准数据
-            for r in success_results:
-                input_id = r.parsed_data.get("asset_id") or r.case_id.split("_")[-1]
-                api_client = AssetAPIClient(self.config)
-                api_data = api_client.get_asset_detail(input_id)
-                if "error" not in api_data and r.parsed_data:
-                    all_parsed_data.append(r.parsed_data)
-                    all_api_data.append(api_data)
-            
-            if all_parsed_data and all_api_data:
-                risk_level_calc = RiskLevelCalculator()
+        # ========== 2. 所有准确率指标：加权准确率（排除提取失败和推荐问题质量）==========
+        # 推荐问题质量是 LLM 主观评分，不参与多样本均值统计，单独在测试用例详情展示
+        EXCLUDE_FROM_AVG = {"recommend_question_quality"}
+
+        metric_aggregates = {}
+        for r in valid_results:
+            for key, metric_value in r.metrics.items():
+                if key in EXCLUDE_FROM_AVG:
+                    continue
+                if "accuracy" not in metric_value:
+                    continue
+                if metric_value.get("is_extraction_failure"):
+                    if key not in metric_aggregates:
+                        metric_aggregates[key] = {
+                            "total_accuracy": 0, "count": 0,
+                            "excluded_count": 0,
+                            "metric_cn": metric_value.get("metric_cn", key)
+                        }
+                    metric_aggregates[key]["excluded_count"] += 1
+                    continue
                 try:
-                    # 批量计算宏平均F1
-                    metric_result = risk_level_calc.calculate(all_parsed_data[0], all_api_data[0])
-                    if len(all_parsed_data) > 1:
-                        # 如果有多个样本，模拟宏平均计算
-                        # 这里简化处理，实际生产中需要完整实现
-                        total_acc = 0.0
-                        valid_count = 0
-                        for pd, ad in zip(all_parsed_data, all_api_data):
-                            mr = risk_level_calc.calculate(pd, ad)
-                            total_acc += mr.accuracy
-                            valid_count += 1
-                        if valid_count > 0:
-                            macro_f1 = total_acc / valid_count
-                        else:
-                            macro_f1 = 0.0
-                        stats["risk_level_macro_f1"] = macro_f1
-                    else:
-                        stats["risk_level_macro_f1"] = metric_result.accuracy
-                except Exception as e:
-                    print(f"   ⚠️ 宏平均F1计算异常: {e}")
-                    stats["risk_level_macro_f1"] = None
+                    accuracy = float(metric_value["accuracy"])
+                except (ValueError, TypeError):
+                    continue
+                if key not in metric_aggregates:
+                    metric_aggregates[key] = {
+                        "total_accuracy": 0, "count": 0,
+                        "excluded_count": 0,
+                        "metric_cn": metric_value.get("metric_cn", key)
+                    }
+                metric_aggregates[key]["total_accuracy"] += accuracy
+                metric_aggregates[key]["count"] += 1
 
-        # ========== 3. 告警攻击判定宏平均F1 ==========
-        if module == "alert" and success_results:
-            try:
-                total_acc = 0.0
-                valid_count = 0
-                
-                for r in success_results:
-                    # 获取单个样本的指标
-                    metric = r.metrics.get("attack_judgment_f1")
-                    if metric:
-                        accuracy = metric.get("accuracy", 0.0)
-                        total_acc += accuracy
-                        valid_count += 1
-                
-                if valid_count > 0:
-                    # 计算宏平均F1
-                    macro_f1 = total_acc / valid_count
-                    stats["attack_judgment_macro_f1"] = macro_f1
-                else:
-                    stats["attack_judgment_macro_f1"] = 0.0
-                    
-            except Exception as e:
-                print(f"   ⚠️ 攻击判定宏平均F1计算异常: {e}")
-                stats["attack_judgment_macro_f1"] = None
+        avg_accuracies = {}
+        for key, agg in metric_aggregates.items():
+            if agg["count"] > 0:
+                avg_accuracies[key] = {
+                    "metric_cn": agg["metric_cn"],
+                    "avg_accuracy": agg["total_accuracy"] / agg["count"],  # 0~1
+                    "valid_count": agg["count"],
+                    "excluded_count": agg["excluded_count"]
+                }
 
+        stats["avg_accuracies"] = avg_accuracies
         return stats
 
     def run_all_tests(self) -> Dict[str, List[TestResult]]:
@@ -1205,23 +1308,57 @@ class AIInterpretAgent:
         print(f"🚀 AI 解读自动化测试智能体 - 全模块测试")
         print(f"{'='*60}")
 
-        all_test_cases = self.test_case_manager.load_all_test_cases()
+        # 默认从配置 ID 动态生成用例
+        all_test_cases = {}
+        config = self.config
+
+        print("  ℹ️ 从配置 ID 动态生成用例...")
+
+        for module in self.MODULE_CONFIG.keys():
+                id_field = self.MODULE_CONFIG[module]["id_field"]
+                # 映射 config 上的属性
+                config_key_map = {
+                    "asset": "test_assets",
+                    "vuln": "test_vulns",
+                    "alert": "test_alerts",
+                    "event": "test_events",
+                }
+                attr_name = config_key_map.get(module)
+                ids = getattr(config, attr_name, []) if attr_name else []
+                if ids:
+                    cases = []
+                    for idx, id_val in enumerate(ids):
+                        cases.append(TestCase(
+                            case_id=f"{module}_auto_{idx+1:02d}",
+                            module=module,
+                            input_data={id_field: str(id_val)},
+                            expected_output={},
+                            description=f"{self.MODULE_CONFIG[module]['name']}测试 - {id_val}",
+                            tags=["automated", module]
+                        ))
+                    all_test_cases[module] = cases
 
         for module in self.MODULE_CONFIG.keys():
             if module in all_test_cases and all_test_cases[module]:
                 self.run_module_tests(module, all_test_cases[module])
+            else:
+                print(f"  ⏭️ 跳过 {self.MODULE_CONFIG[module]['name']}（无测试ID）")
 
         self._generate_comprehensive_report()
         return self.results
 
-    def _generate_comprehensive_report(self) -> None:
-        """生成综合测试报告（JSON + HTML）"""
+    def _generate_comprehensive_report(self) -> str:
+        """生成综合测试报告（JSON + HTML），每次执行独立目录，不覆盖历史
+        
+        Returns:
+            output_dir: 本次报告所在目录路径（供审查使用）
+        """
         report_data = self._prepare_report_data()
 
-        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs")
+        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs", "ai_test_agent", self.run_date)
         os.makedirs(output_dir, exist_ok=True)
 
-        # 生成 JSON 报告
+        # JSON 报告：每天固定文件名，多次执行覆盖，只保留最新
         json_path = os.path.join(output_dir, "ai_interpret_test_report.json")
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(report_data, f, ensure_ascii=False, indent=2)
@@ -1236,6 +1373,7 @@ class AIInterpretAgent:
             print(f"      ├── {p}")
         
         print(f"{'='*60}")
+        return output_dir
 
     def _prepare_report_data(self) -> Dict[str, Any]:
         """准备报告数据"""
@@ -1248,6 +1386,8 @@ class AIInterpretAgent:
 
         total_cases = 0
         total_success = 0
+        total_errors = 0
+        total_invalid = 0
         all_first_packet_times = []
         all_total_times = []
 
@@ -1256,13 +1396,19 @@ class AIInterpretAgent:
             report["modules"][module] = module_report
 
             total_cases += len(results)
-            total_success += sum(1 for r in results if r.success)
-            all_first_packet_times.extend([r.first_packet_time for r in results if r.success])
-            all_total_times.extend([r.total_response_time for r in results if r.success])
+            total_success += sum(1 for r in results if r.success and not r.is_invalid)
+            total_errors += sum(1 for r in results if not r.success)
+            total_invalid += sum(1 for r in results if r.is_invalid)
+            # 仅有效样本的响应时间参与统计
+            all_first_packet_times.extend([r.first_packet_time for r in results if r.success and not r.is_invalid])
+            all_total_times.extend([r.total_response_time for r in results if r.success and not r.is_invalid])
 
         report["summary"] = {
             "total_cases": total_cases,
             "total_success": total_success,
+            "total_errors": total_errors,
+            "total_invalid": total_invalid,
+            "valid_count": total_success,
             "success_rate": total_success / total_cases if total_cases > 0 else 0,
             "avg_first_packet_time": sum(all_first_packet_times) / len(all_first_packet_times) if all_first_packet_times else 0,
             "avg_total_response_time": sum(all_total_times) / len(all_total_times) if all_total_times else 0
@@ -1273,25 +1419,43 @@ class AIInterpretAgent:
     def _prepare_module_report(self, module: str, results: List[TestResult]) -> Dict[str, Any]:
         """准备模块报告数据"""
         module_config = self.MODULE_CONFIG[module]
-        success_count = sum(1 for r in results if r.success)
+        success_count = sum(1 for r in results if r.success and not r.is_invalid)
+        error_count = sum(1 for r in results if not r.success)
+        invalid_count = sum(1 for r in results if r.is_invalid)
 
-        first_packet_times = [r.first_packet_time for r in results if r.success]
-        total_times = [r.total_response_time for r in results if r.success]
-        
+        # 仅有效样本的响应时间参与统计
+        first_packet_times = [r.first_packet_time for r in results if r.success and not r.is_invalid]
+        total_times = [r.total_response_time for r in results if r.success and not r.is_invalid]
+
         multi_sample_stats = self._calculate_multi_sample_stats(module, results)
+
+        # 有效样本ID列表
+        valid_sample_ids = [r.input_id for r in results if r.success and not r.is_invalid]
+        # 失效样本ID列表
+        invalid_sample_ids = [r.input_id for r in results if r.is_invalid]
+        # 失败样本ID列表
+        failed_sample_ids = [r.input_id for r in results if not r.success]
 
         return {
             "name": module_config["name"],
             "total_cases": len(results),
             "success_count": success_count,
+            "error_count": error_count,
+            "invalid_count": invalid_count,
+            "valid_count": success_count,
             "success_rate": success_count / len(results) if results else 0,
             "avg_first_packet_time": sum(first_packet_times) / len(first_packet_times) if first_packet_times else 0,
             "avg_total_response_time": sum(total_times) / len(total_times) if total_times else 0,
             "multi_sample_stats": multi_sample_stats,
+            "valid_sample_ids": valid_sample_ids,
+            "invalid_sample_ids": invalid_sample_ids,
+            "failed_sample_ids": failed_sample_ids,
             "test_cases": [
                 {
+                    module_config["id_field"]: r.input_id,
                     "case_id": r.case_id,
                     "success": r.success,
+                    "is_invalid": r.is_invalid,
                     "first_packet_time": r.first_packet_time,
                     "total_response_time": r.total_response_time,
                     "error": r.error,
