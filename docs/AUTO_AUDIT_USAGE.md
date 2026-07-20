@@ -19,15 +19,15 @@
 ```
 outputs/
 ├── ai_test_agent/                  # AI解读测试（run_ai_test_agent.py）生成
-│   ├── alert_raw_md/               # 原始告警解读报告
-│   ├── alert_raw_json/             # 原始告警解读数据
+│   ├── alarm_raw_md/               # 原始告警解读报告
+│   ├── alarm_raw_json/             # 原始告警解读数据
 │   ├── event_raw_md/               # 原始事件解读报告
 │   ├── event_raw_json/             # 原始事件解读数据
 │   ├── vuln_raw_md/                # 原始漏洞解读报告
 │   ├── vuln_raw_json/              # 原始漏洞解读数据
 │   └── html_reports/               # HTML 可视化报告
 ├── batch_audit/                    # 批量审查（run_batch_audit.py）生成
-│   ├── alert_report/               # 告警审查报告
+│   ├── alarm_report/               # 告警审查报告
 │   │   ├── {告警编号}_audit.md          # 审查报告
 │   │   └── {告警编号}_audit_input.txt   # 审查输入
 │   ├── event_report/               # 事件审查报告
@@ -52,10 +52,10 @@ outputs/
 ============================================================
 🔍 自动审查准备完成
 ============================================================
-  报告类型: alert
+  报告类型: alarm
   报告ID: 8327584877785079808
-  报告文件: outputs/ai_test_agent/alert_raw_md/alert_report_8327584877785079808.md
-  审查输入文件: outputs/batch_audit/alert_report/8327584877785079808_audit_input.txt
+  报告文件: outputs/ai_test_agent/alarm_raw_md/alarm_report_8327584877785079808.md
+  审查输入文件: outputs/batch_audit/alarm_report/8327584877785079808_audit_input.txt
   审查技能: alarm_report_audit
 ============================================================
 
@@ -65,7 +65,7 @@ outputs/
    然后将审查输入文件内容粘贴到对话中
 
    方法2: 直接在对话中输入:
-   '请审查 alert 报告 8327584877785079808'
+   '请审查 alarm 报告 8327584877785079808'
    系统会自动调用 alarm_report_audit 技能
 ============================================================
 ```
@@ -81,10 +81,10 @@ from core.auditors import AutoAuditManager
 manager = AutoAuditManager()
 
 # 审查特定告警报告
-results = manager.auto_audit_report('alert', '8327584877785079808')
+results = manager.auto_audit_report('alarm', '8327584877785079808')
 
 # 审查所有告警报告
-results = manager.auto_audit_report('alert')
+results = manager.auto_audit_report('alarm')
 
 # 审查所有类型的报告
 all_results = manager.auto_audit_all_reports()
@@ -100,7 +100,7 @@ manager.print_audit_summary()
 - **输入**: 待审计告警解读报告完整原文
 - **输出**: 标准化审计报告，包含合规评级、违规统计、纠错修改指引
 - **审查维度**: 结构完整性、逻辑分支、红线合规、处置建议、内容质量
-- **保存位置**: outputs/batch_audit/alert_report/{告警编号}_audit.md
+- **保存位置**: outputs/batch_audit/alarm_report/{告警编号}_audit.md
 
 ### event_report_audit（事件审查）
 
@@ -139,7 +139,7 @@ manager.print_audit_summary()
 ### 步骤1：生成解读报告
 
 ```bash
-python run_ai_test_agent.py --module alert
+python run_ai_test_agent.py --module alarm
 ```
 
 系统会自动生成告警解读报告并准备审查输入。
@@ -155,7 +155,7 @@ python run_ai_test_agent.py --module alert
 或者：
 
 ```
-请审查 alert 报告 8327584877785079808
+请审查 alarm 报告 8327584877785079808
 ```
 
 ### 步骤3：查看审查报告
@@ -163,7 +163,7 @@ python run_ai_test_agent.py --module alert
 审查报告会自动保存到：
 
 ```
-outputs/batch_audit/alert_report/8327584877785079808_audit.md
+outputs/batch_audit/alarm_report/8327584877785079808_audit.md
 ```
 
 ## 注意事项

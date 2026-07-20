@@ -15,7 +15,7 @@ from dataclasses import dataclass, asdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from core.config_loader import ConfigLoader
-from core.api_clients import AssetAPIClient, VulnAPIClient, AlertAPIClient, EventAPIClient
+from core.api_clients import AssetAPIClient, VulnAPIClient, AlarmAPIClient, EventAPIClient
 from core.extractors import AIExtractor
 from core.calculators import (
     RiskLevelCalculator,
@@ -88,12 +88,12 @@ class AIInterpretAgent:
                 FormatComplianceCalculator
             ]
         },
-        "alert": {
+        "alarm": {
             "name": "安全告警解读",
-            "agent": "alert",
+            "agent": "alarm",
             "biz_type": 1,
-            "id_field": "alert_id",
-            "api_client": AlertAPIClient,
+            "id_field": "alarm_id",
+            "api_client": AlarmAPIClient,
             "calculators": [
                 RiskLevelCalculator,
                 ResponseTimeCalculator,
@@ -134,7 +134,7 @@ class AIInterpretAgent:
         self.run_date = datetime.now().strftime("%Y%m%d_%H%M%S")
         # 各模块 API 客户端在初始化时统一创建（只登录一次），后续复用
         self._asset_client = AssetAPIClient(self.config)
-        self._alert_client = AlertAPIClient(self.config)
+        self._alarm_client = AlarmAPIClient(self.config)
         self._event_client = EventAPIClient(self.config)
         self._vuln_client = VulnAPIClient(self.config)
 
@@ -149,20 +149,20 @@ class AIInterpretAgent:
         headers = self.config.headers
 
         session_id = f"-1@{datetime.now().strftime('%Y%m%d%H%M%S')}-{input_id[-8:]}"
-        alert_info = ""
+        alarm_info = ""
         conversation_id = ""
 
         # 所有模块都需要先获取sessionId（大写I）
         getsessionid_url = f"{base_url}/maxs/szr/chat/getSessionId"
 
-        if module == "alert":
-            api_data = self._alert_client.get_alert_detail(input_id)
-            alert_info = ""
+        if module == "alarm":
+            api_data = self._alarm_client.get_alarm_detail(input_id)
+            alarm_info = ""
             if api_data and "error" not in api_data:
-                alert_type = api_data.get("alert_type", "")
-                if alert_type:
-                    alert_info = f"查询木马相关域名：{alert_type}，"
-            question = f"请为我分析检测到{alert_info}告警ID：{input_id}"
+                alarm_type = api_data.get("alarm_type", "")
+                if alarm_type:
+                    alarm_info = f"查询木马相关域名：{alarm_type}，"
+            question = f"请为我分析检测到{alarm_info}告警ID：{input_id}"
             biz_type = 1
         elif module == "event":
             question = f"请为我调查这个安全事件,事件ID: {input_id}"
@@ -264,7 +264,7 @@ class AIInterpretAgent:
                                 if str(code) == "200" and total_time is None:
                                     data_val = json_data.get("data", "")
                                     # 告警/事件：收到 recommend_start 时结束计时
-                                    if module in ("alert", "event") and answer_type == "recommend_start":
+                                    if module in ("alarm", "event") and answer_type == "recommend_start":
                                         total_time = time.time() - start_time
                                     # 漏洞：收到 answerType=text, data="<END_OF_TURN>" 时结束计时
                                     elif module == "vuln" and answer_type == "text" and data_val == "<END_OF_TURN>":
@@ -324,9 +324,9 @@ class AIInterpretAgent:
                     "conversationId": conversation_id,
                     "tag": "id"
                 }
-            elif module == "alert":
+            elif module == "alarm":
                 chat_payload = {
-                    "question": f"请为我分析检测到{alert_info}告警ID：{input_id}",
+                    "question": f"请为我分析检测到{alarm_info}告警ID：{input_id}",
                     "sessionId": session_id,
                     "conversationId": conversation_id,
                     "tag": "id",
@@ -406,11 +406,11 @@ class AIInterpretAgent:
             json_dir = os.path.join(output_dir, "vuln_raw_json")
             prefix = "vuln_report"
             data_prefix = "vuln_data"
-        elif module == "alert":
-            md_dir = os.path.join(output_dir, "alert_raw_md")
-            json_dir = os.path.join(output_dir, "alert_raw_json")
-            prefix = "alert_report"
-            data_prefix = "alert_data"
+        elif module == "alarm":
+            md_dir = os.path.join(output_dir, "alarm_raw_md")
+            json_dir = os.path.join(output_dir, "alarm_raw_json")
+            prefix = "alarm_report"
+            data_prefix = "alarm_data"
         elif module == "event":
             md_dir = os.path.join(output_dir, "event_raw_md")
             json_dir = os.path.join(output_dir, "event_raw_json")
@@ -459,8 +459,8 @@ class AIInterpretAgent:
             return result
         elif module == "vuln":
             return self._parse_vuln(raw_text)
-        elif module == "alert":
-            return self._parse_alert(raw_text)
+        elif module == "alarm":
+            return self._parse_alarm(raw_text)
         elif module == "event":
             return self._parse_event(raw_text)
         return {}
@@ -488,7 +488,7 @@ class AIInterpretAgent:
 
         return result
 
-    def _parse_alert(self, raw_text: str) -> Dict[str, Any]:
+    def _parse_alarm(self, raw_text: str) -> Dict[str, Any]:
         """解析安全告警解读输出"""
         result = {}
         import re
@@ -516,7 +516,7 @@ class AIInterpretAgent:
                 attack_result = match.group(1)
         result['attack_result'] = attack_result if attack_result else "未获取到"
 
-        config = self.MODULE_CONFIG["alert"]
+        config = self.MODULE_CONFIG["alarm"]
         missing = [s for s in config["required_sections"] if s not in raw_text]
         result['missing_sections'] = missing
         result['format_compliance'] = (len(config["required_sections"]) - len(missing)) / len(config["required_sections"])
@@ -625,7 +625,7 @@ class AIInterpretAgent:
                         "dynamic_structure_completeness": "1.动态结构完整率"
                     }
                 },
-                "alert": {
+                "alarm": {
                     "metrics_order": ["chapter_structure_completeness", "threat_determination_accuracy", "attack_result_accuracy"],
                     "labels": {
                         "chapter_structure_completeness": "1.6章结构完整率",
@@ -766,12 +766,12 @@ class AIInterpretAgent:
                 }
 
         # ========== 安全告警解读模块 ==========
-        elif module == "alert":
+        elif module == "alarm":
             from core.calculators import StructureCompletenessCalculator, ThreatDeterminationCalculator, AttackResultCalculator
 
             # 1. 6章结构完整率
             try:
-                struct_metric = StructureCompletenessCalculator(module="alert").calculate({"raw_text": test_result.raw_text})
+                struct_metric = StructureCompletenessCalculator(module="alarm").calculate({"raw_text": test_result.raw_text})
                 metrics["chapter_structure_completeness"] = struct_metric.to_dict()
             except Exception as e:
                 metrics["chapter_structure_completeness"] = {
@@ -784,7 +784,7 @@ class AIInterpretAgent:
                 }
 
             # 2. 威胁定性准确率 + 攻击结果准确率
-            api_detail = self._alert_client.get_alarm_detail_by_id(input_id)
+            api_detail = self._alarm_client.get_alarm_detail_by_id(input_id)
             api_valid = api_detail and "error" not in api_detail
             if not api_valid:
                 test_result.is_invalid = True
@@ -824,7 +824,7 @@ class AIInterpretAgent:
                 rq_metric = RecommendQuestionCalculator().calculate(
                     questions=test_result.recommend_questions,
                     raw_report=test_result.raw_text,
-                    module="alert"
+                    module="alarm"
                 )
                 metrics["recommend_question_quality"] = rq_metric
 
@@ -977,7 +977,7 @@ class AIInterpretAgent:
             # 跳过标题、空行、纯符号行、元数据行
             if not line or line.startswith('#') or line.startswith('---') or line.startswith('|'):
                 continue
-            if re.match(r'^\*{2}(?:event_id|事件编号|alert_id|告警编号|时间|生成时间)\*{2}', line):
+            if re.match(r'^\*{2}(?:event_id|事件编号|alarm_id|告警编号|时间|生成时间)\*{2}', line):
                 continue
             if len(line) > 15:
                 return line[:300]
@@ -1046,14 +1046,14 @@ class AIInterpretAgent:
         return "无法判断"
 
     def _check_stability_with_llm_judge(
-        self, summary1: str, summary2: str, alert_description: str
+        self, summary1: str, summary2: str, alarm_description: str
     ) -> Dict[str, Any]:
         """使用LLM裁判判断两次解读的核心结论是否一致
 
         Args:
             summary1: 第一次解读的一句话总结
             summary2: 第二次解读的一句话总结
-            alert_description: 告警/事件描述（供裁判参考）
+            alarm_description: 告警/事件描述（供裁判参考）
 
         Returns:
             {"passed": bool, "inconsistencies": list, "judge_response": str}
@@ -1077,7 +1077,7 @@ class AIInterpretAgent:
 """
 
         user_prompt = f"""## 告警/事件描述
-{alert_description[:500]}
+{alarm_description[:500]}
 
 ## 第一次解读的一句话总结
 {summary1[:500]}
@@ -1200,7 +1200,7 @@ class AIInterpretAgent:
             print(f"   失效样本ID: {', '.join(invalid_ids)}")
 
         # 输出多样本整体统计
-        if module in ["asset", "alert", "event", "vuln"]:
+        if module in ["asset", "alarm", "event", "vuln"]:
             multi_sample_stats = self._calculate_multi_sample_stats(module, results)
             if multi_sample_stats:
                 print(f"\n📈 多样本整体统计")
@@ -1320,7 +1320,7 @@ class AIInterpretAgent:
                 config_key_map = {
                     "asset": "test_assets",
                     "vuln": "test_vulns",
-                    "alert": "test_alerts",
+                    "alarm": "test_alarms",
                     "event": "test_events",
                 }
                 attr_name = config_key_map.get(module)

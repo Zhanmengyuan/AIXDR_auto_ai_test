@@ -46,11 +46,11 @@ class AssetAPIClient(BaseAPIClient):
         )
         result["vuln_list"] = vuln_data["vuln_ids"]
         result["cve_list"] = vuln_data["cve_codes"]
-        result["alert_list"] = self._fetch_list(
-            self.config.alert_endpoint,
+        result["alarm_list"] = self._fetch_list(
+            self.config.alarm_endpoint,
             {"selectAllFlag": True, "conditionUnitList": [{"key": "AFFECTED_ASSET_ID", "operator": "equals", "value": [asset_id]}], "pageIndex": 1, "pageSize": 200},
             ["rowData", "data"],
-            ["alertId", "alert_id", "id"]
+            ["alarmId", "alarm_id", "id"]
         )
         result["event_list"] = self._fetch_list(
             self.config.event_endpoint,

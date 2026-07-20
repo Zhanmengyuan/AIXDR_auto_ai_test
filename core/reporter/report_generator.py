@@ -130,7 +130,7 @@ class TraceReportGenerator:
     MODULE_NAMES = {
         "asset": "资产解读",
         "vuln": "漏洞解读",
-        "alert": "告警解读",
+        "alarm": "告警解读",
         "event": "事件解读"
     }
 
@@ -164,7 +164,7 @@ class TraceReportGenerator:
         module_descriptions = {
             "asset": "测试AI对资产信息解读的准确性，包括风险等级、风险评分、漏洞列表、告警列表、事件列表等字段的提取和比对",
             "vuln": "测试AI对漏洞信息解读的准确性，包括CVSS评分、风险等级、影响版本等字段的提取和比对",
-            "alert": "测试AI对告警信息解读的准确性，包括攻击判定、风险等级等字段的提取和比对",
+            "alarm": "测试AI对告警信息解读的准确性，包括攻击判定、风险等级等字段的提取和比对",
             "event": "测试AI对事件信息解读的准确性，包括事件类型、风险等级等字段的提取和比对"
         }
 
@@ -194,7 +194,7 @@ class TraceReportGenerator:
         api_client_map = {
             "asset": AssetAPIClient(self.config) if 'AssetAPIClient' in dir() else None,
             "vuln": VulnAPIClient(self.config) if 'VulnAPIClient' in dir() else None,
-            "alert": AlertAPIClient(self.config) if 'AlertAPIClient' in dir() else None,
+            "alarm": AlarmAPIClient(self.config) if 'AlarmAPIClient' in dir() else None,
             "event": EventAPIClient(self.config) if 'EventAPIClient' in dir() else None
         }
 
@@ -283,7 +283,7 @@ class TraceReportGenerator:
         sources = {
             "asset": "资产详情API接口 /ai/asset/detail + 漏洞列表API + 告警列表API + 事件列表API",
             "vuln": "漏洞详情API接口 /ai/vuln/detail",
-            "alert": "告警详情API接口 /ai/alert/detail",
+            "alarm": "告警详情API接口 /ai/alarm/detail",
             "event": "事件详情API接口 /ai/event/detail"
         }
         return sources.get(module, "API接口")

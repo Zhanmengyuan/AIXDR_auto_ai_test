@@ -94,8 +94,8 @@ class ConfigLoader:
         return self._config.get('test_assets', [])
 
     @property
-    def test_alerts(self) -> List[str]:
-        return self._config.get('test_alerts', [])
+    def test_alarms(self) -> List[str]:
+        return self._config.get('test_alarms', [])
 
     @property
     def test_events(self) -> List[str]:
@@ -106,9 +106,9 @@ class ConfigLoader:
         return self._config.get('test_vulns', [])
 
     @property
-    def stability_test_alerts(self) -> List[str]:
+    def stability_test_alarms(self) -> List[str]:
         """稳定性测试专用告警ID列表"""
-        return self._config.get('stability_test_alerts', [])
+        return self._config.get('stability_test_alarms', [])
 
     @property
     def stability_test_events(self) -> List[str]:
@@ -129,8 +129,8 @@ class ConfigLoader:
         return self._config.get('api', {}).get('vuln_endpoint', '/maxs/asset/vuln/pageAssetDetail')
 
     @property
-    def alert_endpoint(self) -> str:
-        return self._config.get('api', {}).get('alert_endpoint', '/maxs/rv/alarm/pageAlarm')
+    def alarm_endpoint(self) -> str:
+        return self._config.get('api', {}).get('alarm_endpoint', '/maxs/rv/alarm/pageAlarm')
 
     @property
     def event_endpoint(self) -> str:

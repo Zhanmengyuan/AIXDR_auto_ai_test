@@ -64,7 +64,7 @@ class TextExtractor:
         return [f"AVE-{m[0]}-{m[1]}" for m in matches]
 
     @staticmethod
-    def extract_alert_list(text: str) -> List[str]:
+    def extract_alarm_list(text: str) -> List[str]:
         """从文本中提取告警ID列表 (ALE-xxx格式)"""
         pattern = r'ALE[-\s]?(\d{4})[-\s]?(\d+)'
         matches = re.findall(pattern, text, re.IGNORECASE)

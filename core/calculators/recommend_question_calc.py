@@ -40,14 +40,14 @@ class RecommendQuestionCalculator:
         self,
         questions: List[str],
         raw_report: str,
-        module: str = "alert"
+        module: str = "alarm"
     ) -> Dict[str, Any]:
         """评估推荐问题质量
 
         Args:
             questions: SSE 中捕获的3个推荐问题列表
             raw_report: 对应的解读报告原文（用于关联性判断）
-            module: 模块类型 alert/event
+            module: 模块类型 alarm/event
 
         Returns:
             包含三个维度得分和综合得分的字典（0~1）
@@ -107,7 +107,7 @@ overall_score = (compliance_score + relevance_score + diversity_score) / 3，保
 合格判定：三个维度分数均 ≥ 0.8 时 is_qualified=true，否则 is_qualified=false，并在 fail_reasons 中列出未达标的维度。
 """
 
-        module_name = "告警" if module == "alert" else "事件"
+        module_name = "告警" if module == "alarm" else "事件"
         user_prompt = f"""## 解读报告（{module_name}解读）
 
 {raw_report[:3000]}

@@ -95,7 +95,7 @@ class ThreatDeterminationCalculator(BaseCalculator):
         detail = {
             "ai_threat_determination": ai_value,
             "api_threat_determination": api_value,
-            "api_alert_result_flag": api_data.get("alert_result_flag_raw", ""),
+            "api_alarm_result_flag": api_data.get("alarm_result_flag_raw", ""),
             "match_type": "exact" if accuracy >= 1.0 else ("partial" if accuracy >= 0.5 else "none"),
         }
 

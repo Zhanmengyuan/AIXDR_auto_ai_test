@@ -12,7 +12,7 @@ def main():
     mgr = AutoAuditManager(run_date=run_date)
 
     all_results = {}
-    for report_type in ['asset', 'alert', 'event', 'vuln']:
+    for report_type in ['asset', 'alarm', 'event', 'vuln']:
         print(f"\n{'='*70}")
         print(f"开始批量审查: {report_type}")
         print(f"{'='*70}")

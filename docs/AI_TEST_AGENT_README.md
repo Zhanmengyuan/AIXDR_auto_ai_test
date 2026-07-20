@@ -20,7 +20,7 @@ AIXDR_auto_ai_test/
 ├── test_data/                           # 测试用例数据目录
 │   ├── asset/
 │   ├── vuln/
-│   ├── alert/
+│   ├── alarm/
 │   └── event/
 └── run_ai_test_agent.py                 # 运行入口
 ```
@@ -31,7 +31,7 @@ AIXDR_auto_ai_test/
 |--------|----------|--------------|
 | asset | 资产解读 | 风险等级准确率、字段完整率、格式合规率、响应时间 |
 | vuln | 漏洞解读 | CVSS 评分误差、风险等级、影响范围、响应时间 |
-| alert | 安全告警解读 | 攻击判定准确率、影响资产召回率、响应时间 |
+| alarm | 安全告警解读 | 攻击判定准确率、影响资产召回率、响应时间 |
 | event | 安全事件解读 | 综合研判准确率、响应时间 |
 
 ## 快速开始
@@ -194,14 +194,14 @@ all_results = agent.run_all_tests()
 ```
 outputs/
 ├── ai_test_agent/              # AI解读测试（run_ai_test_agent.py）生成
-│   ├── alert_raw_md/          # 原始告警解读报告
+│   ├── alarm_raw_md/          # 原始告警解读报告
 │   ├── event_raw_md/          # 原始事件解读报告
 │   ├── vuln_raw_md/           # 原始漏洞解读报告
 │   └── html_reports/          # HTML 可视化报告
 ├── batch_audit/               # 批量审查（run_batch_audit.py）生成
-│   ├── alert_report/          # 告警审查报告
+│   ├── alarm_report/          # 告警审查报告
 │   │   ├── {告警编号}_audit.md          # 审查报告
-│   │   └── alert_audit_summary.md       # 审查总结报告
+│   │   └── alarm_audit_summary.md       # 审查总结报告
 │   ├── event_report/          # 事件审查报告
 │   │   ├── {事件编号}_audit.md          # 审查报告
 │   │   └── event_audit_summary.md       # 审查总结报告
@@ -218,7 +218,7 @@ outputs/
 #### 审查告警报告
 
 ```bash
-python3 run_batch_audit.py alert
+python3 run_batch_audit.py alarm
 ```
 
 #### 审查事件报告

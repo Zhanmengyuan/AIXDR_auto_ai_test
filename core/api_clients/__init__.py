@@ -5,7 +5,7 @@ API客户端层
 from .base_client import BaseAPIClient
 from .asset_client import AssetAPIClient
 from .vuln_client import VulnAPIClient
-from .alert_client import AlertAPIClient
+from .alarm_client import AlarmAPIClient
 from .event_client import EventAPIClient
 from .auth_client import AuthClient
 
@@ -13,7 +13,7 @@ __all__ = [
     "BaseAPIClient",
     "AssetAPIClient",
     "VulnAPIClient",
-    "AlertAPIClient",
+    "AlarmAPIClient",
     "EventAPIClient",
     "AuthClient"
 ]

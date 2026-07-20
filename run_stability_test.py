@@ -14,7 +14,7 @@ from typing import Dict, List, Any
 sys.path.insert(0, os.path.dirname(__file__))
 from core.config_loader import ConfigLoader
 from agents.ai_interpret_agent import AIInterpretAgent
-from core.api_clients.alert_client import AlertAPIClient
+from core.api_clients.alarm_client import AlarmAPIClient
 from core.api_clients.event_client import EventAPIClient
 
 
@@ -22,7 +22,7 @@ def run_stability_test(module_type: str, run_id: str = None):
     """运行稳定性测试
 
     Args:
-        module_type: 模块类型，'alert'、'event' 或 'vuln'
+        module_type: 模块类型，'alarm'、'event' 或 'vuln'
         run_id: 本次执行的时间戳，同一次 all 执行共用同一个 run_id
     """
     if run_id is None:
@@ -30,10 +30,10 @@ def run_stability_test(module_type: str, run_id: str = None):
     print("\n" + "="*70)
 
     # 根据模块类型设置标题和测试参数
-    if module_type == "alert":
+    if module_type == "alarm":
         print(f"📋 核心结论稳定性测试 - 安全告警")
-        test_ids = ConfigLoader().stability_test_alerts
-        id_field = "alert_id"
+        test_ids = ConfigLoader().stability_test_alarms
+        id_field = "alarm_id"
         module_name = "安全告警"
     elif module_type == "event":
         print(f"📋 核心结论稳定性测试 - 安全事件")
@@ -47,7 +47,7 @@ def run_stability_test(module_type: str, run_id: str = None):
         module_name = "漏洞"
     else:
         print(f"❌ 不支持的模块类型: {module_type}")
-        print("   支持的类型: alert, event, vuln")
+        print("   支持的类型: alarm, event, vuln")
         return
 
     print("="*70)
@@ -229,18 +229,18 @@ def run_stability_test(module_type: str, run_id: str = None):
             print(f"  📝 总结2: {summary2[:100]}...")
 
             # 获取原始告警/事件描述
-            if module_type == "alert":
-                api_client = AlertAPIClient(config)
-                api_detail = api_client.get_alert_detail(test_id)
-                alert_description = api_detail.get("description", "") or api_detail.get("title", "") or test_id
+            if module_type == "alarm":
+                api_client = AlarmAPIClient(config)
+                api_detail = api_client.get_alarm_detail(test_id)
+                alarm_description = api_detail.get("description", "") or api_detail.get("title", "") or test_id
             else:  # event
                 api_client = EventAPIClient(config)
                 api_detail = api_client.get_event_detail_by_id(test_id)
-                alert_description = api_detail.get("description", "") or api_detail.get("title", "") or test_id
+                alarm_description = api_detail.get("description", "") or api_detail.get("title", "") or test_id
 
             # LLM裁判判断
             print(f"\n🤖 LLM裁判判断稳定性...")
-            stability_result = agent._check_stability_with_llm_judge(summary1, summary2, alert_description)
+            stability_result = agent._check_stability_with_llm_judge(summary1, summary2, alarm_description)
 
             passed = stability_result.get("passed", False)
             inconsistencies = stability_result.get("inconsistencies", [])
@@ -596,7 +596,7 @@ def _build_stability_test_case_html(result: Dict, idx: int, module_type: str) ->
 
 
 MODULE_FILE_NAMES = {
-    "alert": "告警",
+    "alarm": "告警",
     "event": "事件",
     "vuln": "漏洞",
 }
@@ -638,7 +638,7 @@ def save_stability_report(module_type: str, results: List[Dict], pass_count: int
     if module_type == "vuln":
         report_title = "是否立即处置结论稳定性测试报告"
         module_name = "漏洞解读"
-    elif module_type == "alert":
+    elif module_type == "alarm":
         report_title = "核心结论稳定性测试报告"
         module_name = "安全告警解读"
     elif module_type == "event":
@@ -749,7 +749,7 @@ def save_stability_report(module_type: str, results: List[Dict], pass_count: int
 
 
 MODULE_NAMES = {
-    "alert": "安全告警解读",
+    "alarm": "安全告警解读",
     "event": "安全事件解读",
     "vuln": "漏洞解读",
 }
@@ -773,7 +773,7 @@ def save_combined_stability_report(all_results: Dict[str, Dict], run_id: str = N
     error_all = 0
 
     modules_data = {}
-    for mod in ["alert", "event", "vuln"]:
+    for mod in ["alarm", "event", "vuln"]:
         mod_result = all_results.get(mod)
         if mod_result is None:
             continue
@@ -813,7 +813,7 @@ def save_combined_stability_report(all_results: Dict[str, Dict], run_id: str = N
 
     # 概览卡片
     overview_cards = ""
-    for mod in ["alert", "event", "vuln"]:
+    for mod in ["alarm", "event", "vuln"]:
         md = modules_data.get(mod)
         if md is None:
             continue
@@ -827,7 +827,7 @@ def save_combined_stability_report(all_results: Dict[str, Dict], run_id: str = N
 
     # 各模块测试用例详情
     module_sections = ""
-    for mod in ["alert", "event", "vuln"]:
+    for mod in ["alarm", "event", "vuln"]:
         md = modules_data.get(mod)
         if md is None:
             continue
@@ -875,7 +875,7 @@ def save_combined_stability_report(all_results: Dict[str, Dict], run_id: str = N
                 <span style="font-weight:bold;color:#667eea;">📊 总通过率: {overall_pass_rate:.1f}%（基于{overall_valid}个有效测试）</span>
             </div>
             <div style="margin-top:8px;font-size:12px;opacity:0.8;">
-                📁 原始解读MD: stability_md/{run_id}/{{alert|event|vuln}}/
+                📁 原始解读MD: stability_md/{run_id}/{{alarm|event|vuln}}/
             </div>
         </div>
 
@@ -901,7 +901,7 @@ def save_combined_stability_report(all_results: Dict[str, Dict], run_id: str = N
     print(f"\n📄 综合稳定性测试报告已保存:")
     print(f"   执行ID: {run_id}")
     print(f"   HTML: {html_file}")
-    print(f"   原始MD: stability_md/{run_id}/{{alert|event|vuln}}/")
+    print(f"   原始MD: stability_md/{run_id}/{{alarm|event|vuln}}/")
     print(f"\n{'='*70}")
     print(f"📊 综合稳定性测试统计")
     print(f"{'='*70}")
@@ -911,7 +911,7 @@ def save_combined_stability_report(all_results: Dict[str, Dict], run_id: str = N
     print(f"  执行错误: {error_all}（不计入Pass率）")
     print(f"  有效测试: {overall_valid}")
     print(f"  总通过率: {overall_pass_rate:.1f}%")
-    for mod in ["alert", "event", "vuln"]:
+    for mod in ["alarm", "event", "vuln"]:
         md = modules_data.get(mod)
         if md:
             print(f"  {md['module_name']}: {md['pass_rate']:.1f}% ({md['pass']}/{md['valid_count']}有效, 错误{md['error']})")
@@ -925,13 +925,13 @@ def main():
         print("  python3 run_stability_test.py <模块类型>")
         print("")
         print("模块类型:")
-        print("  alert  - 测试告警核心结论稳定性")
+        print("  alarm  - 测试告警核心结论稳定性")
         print("  event  - 测试事件核心结论稳定性")
         print("  vuln   - 测试漏洞是否立即处置结论稳定性")
         print("  all    - 测试所有模块稳定性")
         print("")
         print("示例:")
-        print("  python3 run_stability_test.py alert")
+        print("  python3 run_stability_test.py alarm")
         print("  python3 run_stability_test.py event")
         print("  python3 run_stability_test.py vuln")
         print("  python3 run_stability_test.py all")
@@ -945,7 +945,7 @@ def main():
     if module_type == "all":
         print("\n🔄 测试所有模块的稳定性...")
         all_results = {}
-        all_results["alert"] = run_stability_test("alert", run_id=run_id)
+        all_results["alarm"] = run_stability_test("alarm", run_id=run_id)
         all_results["event"] = run_stability_test("event", run_id=run_id)
         all_results["vuln"] = run_stability_test("vuln", run_id=run_id)
         save_combined_stability_report(all_results, run_id=run_id)
@@ -954,11 +954,11 @@ def main():
         try:
             sys.path.insert(0, os.path.dirname(__file__))
             from core.notify.feishu_notify import send_feishu_message
-            mod_names = {"alert": "安全告警解读", "event": "安全事件解读", "vuln": "漏洞解读"}
+            mod_names = {"alarm": "安全告警解读", "event": "安全事件解读", "vuln": "漏洞解读"}
             total_pass = total_fail = total_error = total_valid = 0
             total_fic = total_fmc = 0
             mod_stats = []
-            for mod in ["alert", "event", "vuln"]:
+            for mod in ["alarm", "event", "vuln"]:
                 res = all_results.get(mod)
                 if res is None:
                     continue
@@ -999,14 +999,14 @@ def main():
         except Exception as e:
             print(f"[飞书通知] 发送失败: {e}")
 
-    elif module_type in ["alert", "event", "vuln"]:
+    elif module_type in ["alarm", "event", "vuln"]:
         result = run_stability_test(module_type, run_id=run_id)
 
         # 飞书通知（单模块结果，与终端统计格式一致）
         try:
             sys.path.insert(0, os.path.dirname(__file__))
             from core.notify.feishu_notify import send_feishu_message
-            mod_names = {"alert": "安全告警", "event": "安全事件", "vuln": "漏洞"}
+            mod_names = {"alarm": "安全告警", "event": "安全事件", "vuln": "漏洞"}
             pc = result.get("pass_count", 0)
             fc = result.get("fail_count", 0)
             ec = result.get("error_count", 0)
@@ -1032,7 +1032,7 @@ def main():
 
     else:
         print(f"\n❌ 不支持的模块类型: {module_type}")
-        print("可用类型: alert, event, vuln, all")
+        print("可用类型: alarm, event, vuln, all")
         sys.exit(1)
 
 

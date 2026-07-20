@@ -386,7 +386,7 @@ class HTMLReportGenerator:
         module_names = {
             "asset": "资产解读",
             "vuln": "漏洞解读",
-            "alert": "安全告警解读",
+            "alarm": "安全告警解读",
             "event": "安全事件解读"
         }
 
@@ -580,7 +580,7 @@ class HTMLReportGenerator:
         module_names = {
             "asset": "资产解读",
             "vuln": "漏洞解读",
-            "alert": "安全告警解读",
+            "alarm": "安全告警解读",
             "event": "安全事件解读"
         }
 
@@ -626,7 +626,7 @@ class HTMLReportGenerator:
         module_names = {
             "asset": "资产解读",
             "vuln": "漏洞解读",
-            "alert": "安全告警解读",
+            "alarm": "安全告警解读",
             "event": "安全事件解读"
         }
 
@@ -635,7 +635,7 @@ class HTMLReportGenerator:
                 "risk_level_accuracy": "风险等级准确率",
                 "chapter_structure_completeness": "结构完整率",
             },
-            "alert": {
+            "alarm": {
                 "threat_determination_accuracy": "威胁定性准确率",
                 "attack_result_accuracy": "攻击结果准确率",
                 "chapter_structure_completeness": "6章结构完整率",
@@ -824,7 +824,7 @@ class HTMLReportGenerator:
         module_names = {
             "asset": "资产解读",
             "vuln": "漏洞解读",
-            "alert": "安全告警解读",
+            "alarm": "安全告警解读",
             "event": "安全事件解读"
         }
         
@@ -911,7 +911,7 @@ class HTMLReportGenerator:
         id_field_map = {
             "asset": "asset_id",
             "vuln": "vuln_id",
-            "alert": "alert_id",
+            "alarm": "alarm_id",
             "event": "event_id"
         }
         id_field = id_field_map.get(module_key, "")
@@ -983,7 +983,7 @@ class HTMLReportGenerator:
         }
         
         # 根据模块类型设置结构完整率的显示名称
-        if module_key in ["alert", "event"]:
+        if module_key in ["alarm", "event"]:
             base_metric_names["chapter_structure_completeness"] = "6章结构完整率"
         elif module_key == "asset":
             base_metric_names["chapter_structure_completeness"] = "结构完整率（3章）"

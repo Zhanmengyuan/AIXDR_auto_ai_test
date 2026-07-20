@@ -58,7 +58,7 @@ class LLMClient:
         last_exception = None
         for attempt in range(1, max_retries + 1):
             try:
-                response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+                response = requests.post(api_url, headers=headers, json=payload, timeout=180)
                 if response.status_code == 200:
                     result = response.json()
                     if result.get('choices'):

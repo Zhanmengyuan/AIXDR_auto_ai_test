@@ -226,9 +226,9 @@ test_data/
   "module": "安全告警解读",
   "test_cases": [
     {
-      "id": "alert_001",
+      "id": "alarm_001",
       "input": {
-        "alert_id": "A123456",
+        "alarm_id": "A123456",
         "description": "检测到疑似暴力破解行为"
       },
       "expected": {
@@ -980,7 +980,7 @@ AIXDR_auto_ai_test/
 │   ├── api_clients/                 # API客户端
 │   │   ├── asset_client.py          # 资产详情API
 │   │   ├── vuln_client.py            # 漏洞列表API
-│   │   ├── alert_client.py           # 告警列表API
+│   │   ├── alarm_client.py           # 告警列表API
 │   │   ├── event_client.py           # 事件列表API
 │   │   └── base_client.py            # API基类
 │   ├── calculators/                  # 指标计算器
@@ -998,7 +998,7 @@ AIXDR_auto_ai_test/
 ├── test_data/                       # ✅ 测试数据
 │   ├── asset/                       # 资产解读测试用例
 │   ├── vuln/                        # 漏洞解读测试用例
-│   ├── alert/                       # 告警解读测试用例
+│   ├── alarm/                       # 告警解读测试用例
 │   └── event/                       # 事件解读测试用例
 ├── outputs/                         # ✅ 测试输出（按脚本分类）
 │   ├── ai_test_agent/               # run_ai_test_agent.py 生成
@@ -1079,7 +1079,7 @@ AIXDR_auto_ai_test/
 ├── test_data/                       # 测试数据
 │   ├── asset/
 │   ├── vuln/
-│   ├── alert/
+│   ├── alarm/
 │   └── event/
 ├── outputs/                         # 测试输出（按脚本分类）
 │   ├── ai_test_agent/               # run_ai_test_agent.py 生成

@@ -6,10 +6,10 @@ from typing import Any, Dict, List
 from .base_calculator import BaseCalculator, MetricResult
 
 
-class AlertAccuracyCalculator(BaseCalculator):
+class AlarmAccuracyCalculator(BaseCalculator):
     """关联告警准确率计算器"""
 
-    METRIC_NAME = "alert_accuracy"
+    METRIC_NAME = "alarm_accuracy"
     METRIC_CN = "关联告警准确率"
     MAX_SCORE = 5
 
@@ -29,25 +29,25 @@ class AlertAccuracyCalculator(BaseCalculator):
         - 4个错误: 20%
         - 5个及以上错误: 0%
         """
-        ai_alerts = self._to_list(ai_data.get('alert_list', []))
-        api_alerts = self._to_list(api_data.get('alert_list', []))
+        ai_alarms = self._to_list(ai_data.get('alarm_list', []))
+        api_alarms = self._to_list(api_data.get('alarm_list', []))
 
-        if not api_alerts:
-            api_alerts = api_data.get('alerts', [])
+        if not api_alarms:
+            api_alarms = api_data.get('alarms', [])
 
-        api_alert_set = set(self._normalize(v) for v in api_alerts)
+        api_alarm_set = set(self._normalize(v) for v in api_alarms)
 
         matched = []
         extra = []
 
-        for alert in ai_alerts:
-            norm_alert = self._normalize(alert)
-            if norm_alert in api_alert_set:
-                matched.append(alert)
+        for alarm in ai_alarms:
+            norm_alarm = self._normalize(alarm)
+            if norm_alarm in api_alarm_set:
+                matched.append(alarm)
             else:
-                extra.append(alert)
+                extra.append(alarm)
 
-        ai_count = len(ai_alerts)
+        ai_count = len(ai_alarms)
         error_count = len(extra)
 
         if ai_count == 0:
@@ -68,18 +68,18 @@ class AlertAccuracyCalculator(BaseCalculator):
 
         detail = {
             "ai_count": ai_count,
-            "api_count": len(api_alerts),
+            "api_count": len(api_alarms),
             "matched": len(matched),
             "error": error_count,
-            "matched_alerts": matched,
-            "extra_alerts": extra,
-            "ai_alerts": ai_alerts,
-            "api_alerts": list(api_alert_set)
+            "matched_alarms": matched,
+            "extra_alarms": extra,
+            "ai_alarms": ai_alarms,
+            "api_alarms": list(api_alarm_set)
         }
 
         return self._create_result(
-            ai_value=ai_alerts,
-            api_value=list(api_alert_set),
+            ai_value=ai_alarms,
+            api_value=list(api_alarm_set),
             accuracy=accuracy,
             detail=detail
         )

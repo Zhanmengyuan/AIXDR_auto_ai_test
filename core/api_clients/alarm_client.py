@@ -7,10 +7,10 @@ from typing import Any, Dict, List
 from .base_client import BaseAPIClient
 
 
-class AlertAPIClient(BaseAPIClient):
+class AlarmAPIClient(BaseAPIClient):
     """告警列表API客户端"""
 
-    def get_asset_alerts(self, asset_id: str, days: int = 90) -> List[str]:
+    def get_asset_alarms(self, asset_id: str, days: int = 90) -> List[str]:
         """获取资产关联的告警ID列表
 
         Args:
@@ -20,7 +20,7 @@ class AlertAPIClient(BaseAPIClient):
         Returns:
             告警ID列表 (ALE-xxx格式)
         """
-        endpoint = self.config.alert_endpoint
+        endpoint = self.config.alarm_endpoint
 
         now = datetime.now()
         end_date = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -52,11 +52,11 @@ class AlertAPIClient(BaseAPIClient):
         if "error" in response:
             return []
 
-        return self._extract_alert_ids(response)
+        return self._extract_alarm_ids(response)
 
-    def _extract_alert_ids(self, api_response: Dict[str, Any]) -> List[str]:
+    def _extract_alarm_ids(self, api_response: Dict[str, Any]) -> List[str]:
         """从API响应中提取告警ID列表"""
-        alerts = []
+        alarms = []
 
         if api_response.get("error"):
             return []
@@ -71,18 +71,18 @@ class AlertAPIClient(BaseAPIClient):
 
         for record in row_data:
             if isinstance(record, dict):
-                alert_id = record.get("SNOW_ID") or record.get("snow_id")
-                if alert_id:
-                    alert_str = str(alert_id).strip()
-                    if not alert_str.upper().startswith("ALE-"):
-                        alert_str = f"ALE-{alert_str}"
-                    alerts.append(alert_str.upper())
+                alarm_id = record.get("SNOW_ID") or record.get("snow_id")
+                if alarm_id:
+                    alarm_str = str(alarm_id).strip()
+                    if not alarm_str.upper().startswith("ALE-"):
+                        alarm_str = f"ALE-{alarm_str}"
+                    alarms.append(alarm_str.upper())
 
-        return list(set(alerts))
+        return list(set(alarms))
 
-    def get_asset_alerts_full(self, asset_id: str, days: int = 90) -> List[Dict[str, Any]]:
+    def get_asset_alarms_full(self, asset_id: str, days: int = 90) -> List[Dict[str, Any]]:
         """获取资产关联的完整告警信息"""
-        endpoint = self.config.alert_endpoint
+        endpoint = self.config.alarm_endpoint
 
         now = datetime.now()
         end_date = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -119,16 +119,16 @@ class AlertAPIClient(BaseAPIClient):
 
         return row_data
 
-    def get_alert_detail(self, alert_id: str) -> Dict[str, Any]:
+    def get_alarm_detail(self, alarm_id: str) -> Dict[str, Any]:
         """获取单个告警的详细信息
 
         Args:
-            alert_id: 告警ID
+            alarm_id: 告警ID
 
         Returns:
             告警详细信息字典，包含 attack_judgment 等字段
         """
-        endpoint = self.config.alert_endpoint
+        endpoint = self.config.alarm_endpoint
 
         now = datetime.now()
         end_date = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -144,7 +144,7 @@ class AlertAPIClient(BaseAPIClient):
                 {
                     "key": "SNOW_ID",
                     "operator": "equals",
-                    "value": [alert_id]
+                    "value": [alarm_id]
                 }
             ],
             "exact": "1",
@@ -166,17 +166,17 @@ class AlertAPIClient(BaseAPIClient):
         if not row_data:
             return {"error": "未找到告警"}
 
-        alert_data = row_data[0] if row_data else {}
+        alarm_data = row_data[0] if row_data else {}
 
         result = {
-            "alert_id": alert_id,
-            "attack_judgment": alert_data.get("ALARM_RESULT") or alert_data.get("alarm_result"),
-            "risk_level": alert_data.get("ALARM_LEVEL") or alert_data.get("alarm_level"),
+            "alarm_id": alarm_id,
+            "attack_judgment": alarm_data.get("ALARM_RESULT") or alarm_data.get("alarm_result"),
+            "risk_level": alarm_data.get("ALARM_LEVEL") or alarm_data.get("alarm_level"),
             "affected_assets": [
-                alert_data.get("AFFECTED_ASSET_ID") or alert_data.get("affected_asset_id")
+                alarm_data.get("AFFECTED_ASSET_ID") or alarm_data.get("affected_asset_id")
             ],
-            "alert_type": alert_data.get("ALARM_TYPE") or alert_data.get("alarm_type"),
-            "raw_data": alert_data
+            "alarm_type": alarm_data.get("ALARM_TYPE") or alarm_data.get("alarm_type"),
+            "raw_data": alarm_data
         }
 
         return result
@@ -203,28 +203,28 @@ class AlertAPIClient(BaseAPIClient):
         "unknown": "未知",
     }
 
-    def get_alert_result(self, alert_id: str) -> Dict[str, Any]:
+    def get_alarm_result(self, alarm_id: str) -> Dict[str, Any]:
         """获取告警的真实研判结果（attack_judgment）（兼容旧接口，内部转发）
 
         Args:
-            alert_id: 告警ID
+            alarm_id: 告警ID
 
         Returns:
             {"attack_judgment": "..."} 或 {"error": "错误信息"}
         """
-        detail = self.get_alarm_detail_by_id(alert_id)
+        detail = self.get_alarm_detail_by_id(alarm_id)
         if "error" in detail:
             return detail
         return {
-            "alert_id": alert_id,
+            "alarm_id": alarm_id,
             "attack_judgment": detail.get("threat_determination", ""),
             "raw_result": detail.get("raw_result", {})
         }
 
-    def get_alarm_detail_by_id(self, alert_id: str) -> Dict[str, Any]:
+    def get_alarm_detail_by_id(self, alarm_id: str) -> Dict[str, Any]:
         """通过 pageAlarm 接口获取告警详情，提取威胁定性和攻击结果字段
 
-        API: POST {alert_endpoint}
+        API: POST {alarm_endpoint}
         Payload:
             {
                 "selectAllFlag": true,
@@ -232,7 +232,7 @@ class AlertAPIClient(BaseAPIClient):
                 "startTime": "...",
                 "endTime": "...",
                 "advanced": 1,
-                "conditionGroup": "告警ID = \"{alert_id}\"",
+                "conditionGroup": "告警ID = \"{alarm_id}\"",
                 "pageIndex": 1,
                 "pageSize": 10,
                 "order": "desc",
@@ -250,11 +250,11 @@ class AlertAPIClient(BaseAPIClient):
                 若两者都无或为空 → 未知
 
         Args:
-            alert_id: 告警ID
+            alarm_id: 告警ID
 
         Returns:
             {
-                "alert_id": "xxx",
+                "alarm_id": "xxx",
                 "threat_determination": "正报/误报/不能确认",
                 "attack_result": "成功/失败/未知",
                 "ai_result_raw": "xxx",
@@ -264,7 +264,7 @@ class AlertAPIClient(BaseAPIClient):
         """
         from datetime import datetime, timedelta
 
-        endpoint = self.config.alert_endpoint
+        endpoint = self.config.alarm_endpoint
         now = datetime.now()
         end_time = now.strftime("%Y-%m-%d %H:%M:%S")
         start_time = (now - timedelta(days=90)).strftime("%Y-%m-%d %H:%M:%S")
@@ -275,7 +275,7 @@ class AlertAPIClient(BaseAPIClient):
             "startTime": start_time,
             "endTime": end_time,
             "advanced": 1,
-            "conditionGroup": f'告警ID = "{alert_id}"',
+            "conditionGroup": f'告警ID = "{alarm_id}"',
             "pageIndex": 1,
             "pageSize": 10,
             "order": "desc",
@@ -322,7 +322,7 @@ class AlertAPIClient(BaseAPIClient):
             attack_label = "未知"
 
         return {
-            "alert_id": alert_id,
+            "alarm_id": alarm_id,
             "threat_determination": threat_label,
             "alert_result_flag_raw": flag_raw,
             "attack_result": attack_label,

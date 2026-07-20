@@ -16,21 +16,21 @@ class AutoAuditManager:
     
     REPORT_TYPE_SKILL_MAP = {
         'asset': 'asset_report_audit',
-        'alert': 'alert_report_audit',
+        'alarm': 'alarm_report_audit',
         'event': 'event_report_audit',
         'vuln': 'vuln_report_audit'
     }
 
     REPORT_TYPE_DIR_MAP = {
         'asset': 'asset_report',
-        'alert': 'alert_report',
+        'alarm': 'alarm_report',
         'event': 'event_report',
         'vuln': 'vuln_report'
     }
     
     REPORT_TYPE_NAME_MAP = {
         'asset': '资产',
-        'alert': '告警',
+        'alarm': '告警',
         'event': '事件',
         'vuln': '漏洞'
     }
@@ -106,8 +106,8 @@ class AutoAuditManager:
         
         if report_type == 'asset':
             match = re.search(r'asset_report_(\d+)\.md', filename)
-        elif report_type == 'alert':
-            match = re.search(r'alert_report_(\d+)\.md', filename)
+        elif report_type == 'alarm':
+            match = re.search(r'alarm_report_(\d+)\.md', filename)
         elif report_type == 'event':
             match = re.search(r'event_report_(\d+)\.md', filename)
         elif report_type == 'vuln':
@@ -186,7 +186,7 @@ class AutoAuditManager:
         """构建LLM用户提示词"""
         type_names = {
             'asset': '资产',
-            'alert': '告警',
+            'alarm': '告警',
             'event': '事件',
             'vuln': '漏洞'
         }
@@ -199,7 +199,7 @@ class AutoAuditManager:
         
         Args:
             report_file: 报告文件路径
-            report_type: 报告类型 (alert/event/vuln)
+            report_type: 报告类型 (alarm/event/vuln)
         
         Returns:
             (success, audit_content, metadata)
@@ -245,11 +245,24 @@ class AutoAuditManager:
         if audit_result:
             print(f"  [审查完成] 报告 {report_id} 审查成功")
             audit_result = self._clean_audit_result(audit_result)
+
+            # ── 调用 score_calculator.py 获取权威得分 ──────────────────────────
+            skill_name = self.REPORT_TYPE_SKILL_MAP.get(report_type)
+            calc_result = self._run_score_calculator(audit_result, report_type, skill_name, report_id)
+            if calc_result:
+                # 用脚本输出的 Markdown 评分表替换审计报告中的评分详情区块
+                audit_result = self._replace_score_section(audit_result, calc_result['markdown'])
+
             audit_filepath = self.save_audit_report(audit_result, report_type, report_id)
-            
+
             metadata = self._parse_audit_result(audit_result, report_id)
+            # 用计分脚本的结果强制覆盖解析结果（最终权威）
+            if calc_result:
+                metadata['score'] = calc_result['total_score']
+                metadata['rating'] = calc_result['rating']
+                print(f"  [计分] 脚本权威得分: {calc_result['total_score']}分 / 评级: {calc_result['rating']}")
             metadata['file_path'] = audit_filepath
-            
+
             return True, audit_result, metadata
         else:
             print(f"  [错误] LLM调用失败，无法生成审查报告")
@@ -280,6 +293,96 @@ class AutoAuditManager:
 
         return text
 
+    def _run_score_calculator(self, audit_result: str, report_type: str,
+                              skill_name: str, report_id: str) -> Optional[Dict]:
+        """
+        从审计报告中提取违规规则ID列表，调用对应技能的 score_calculator.py，
+        返回 {'total_score': int, 'rating': str, 'markdown': str}。
+        若脚本不存在或提取不到ID，返回 None。
+        """
+        import subprocess, json as _json
+
+        # 找到 score_calculator.py 路径
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        calc_path = os.path.join(project_root, 'skills', skill_name, 'score_calculator.py')
+        if not os.path.exists(calc_path):
+            print(f"  [跳过计分] 未找到 {calc_path}")
+            return None
+
+        # 只从 "## ❌ 违规项详情" 区块内提取规则ID，避免匹配到合规细则表或其他区块
+        # 违规表格式：| 序号 | 规则ID | 违规章节 | 违规类型 | 违规描述 |
+        violation_block_match = re.search(
+            r'##\s*❌\s*违规项详情.*?(?=\n##\s|\Z)',
+            audit_result, re.DOTALL
+        )
+        violation_block = violation_block_match.group(0) if violation_block_match else ''
+        violation_ids = re.findall(
+            r'\|\s*\d+\s*\|\s*`?([A-Z]+-\d+)`?\s*\|',
+            violation_block
+        )
+        # 保序去重
+        violation_ids = list(dict.fromkeys(violation_ids))
+        print(f"  [计分] 提取到违规ID: {violation_ids if violation_ids else '无（视为0违规）'}")
+
+        # 调用脚本获取 JSON
+        cmd = ['python3', calc_path] + violation_ids + ['--format', 'json']
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if proc.returncode != 0:
+                print(f"  [计分错误] score_calculator 返回非0: {proc.stderr[:200]}")
+                return None
+            result_json = _json.loads(proc.stdout)
+        except Exception as e:
+            print(f"  [计分错误] 调用 score_calculator 失败: {e}")
+            return None
+
+        # 获取 Markdown 格式评分表（用于回填审计报告）
+        cmd_md = ['python3', calc_path] + violation_ids + ['--format', 'markdown']
+        try:
+            proc_md = subprocess.run(cmd_md, capture_output=True, text=True, timeout=30)
+            md_output = proc_md.stdout.strip() if proc_md.returncode == 0 else ''
+        except Exception:
+            md_output = ''
+
+        return {
+            'total_score': result_json.get('total_score', 0),
+            'rating': result_json.get('rating', ''),
+            'violated_rules': result_json.get('violated_rules', []),
+            'markdown': md_output
+        }
+
+    def _replace_score_section(self, audit_result: str, score_markdown: str) -> str:
+        """
+        用 score_calculator.py 的标准 Markdown 输出替换审计报告中所有
+        '## 📈 评分详情' 区块（LLM 可能生成多个），最终只保留脚本的一个。
+        若找不到任何区块，则在第一个 '---' 分隔符之后插入。
+        """
+        if not score_markdown:
+            return audit_result
+
+        new_section = f"## 📈 评分详情（满分100分）\n\n{score_markdown}"
+
+        # 找出所有 ## 📈 评分详情 区块的位置（LLM 可能生成多个）
+        pattern = r'##\s*📈\s*评分详情[^\n]*\n.*?(?=\n##\s|\Z)'
+        matches = list(re.finditer(pattern, audit_result, re.DOTALL))
+
+        if matches:
+            # 保留第一个区块的起始位置插入新区块，删除全部旧区块
+            first_start = matches[0].start()
+            last_end = matches[-1].end()
+            return (audit_result[:first_start]
+                    + new_section + '\n\n'
+                    + audit_result[last_end:])
+
+        # 找不到评分详情区块，插入到第一个 '---' 之后
+        idx = audit_result.find('---')
+        if idx != -1:
+            return (audit_result[:idx + 3] + '\n\n'
+                    + new_section + '\n\n'
+                    + audit_result[idx + 3:])
+
+        return audit_result + '\n\n' + new_section
+
     def _parse_audit_result(self, audit_result: str, report_id: str) -> Dict:
         """解析审查结果，提取关键元数据"""
         metadata = {
@@ -302,31 +405,101 @@ class AutoAuditManager:
             if summary_match:
                 metadata['summary'] = summary_match.group(1).strip()
             
-            # 综合得分
+            # 综合得分 —— 先从文本行提取，后面会被评分详情表强制覆盖
+            # 兼容：数字/100、纯数字、[待计分脚本确认 / 100] 等占位格式
             score_match = re.search(r'综合得分\*\*\s*[：:]\s*(\d+)\s*/\s*100', audit_result)
             if not score_match:
                 score_match = re.search(r'综合得分\*\*\s*[：:]\s*(\d+)', audit_result)
             if score_match:
                 metadata['score'] = int(score_match.group(1))
+            else:
+                # 检测占位符，打印警告（LLM 未调用计分脚本）
+                if re.search(r'综合得分\*\*\s*[：:]\s*[\[【]', audit_result):
+                    print(f"  [警告] {report_id} 综合得分为占位符，LLM未调用score_calculator.py，将从评分详情表重算")
 
-            # 从评分详情表强制重算综合得分（不信任 LLM 的算术）
+            # 从评分详情表强制重算综合得分（不信任 LLM 的算术，最终权威）
             # 精确定位 "## 📈 评分详情" 区块，避免匹配到报告中其他表格
             score_section = re.search(
                 r'##\s*📈\s*评分详情.*?(?=\n##|\Z)',
                 audit_result, re.DOTALL
             )
             score_block = score_section.group(0) if score_section else audit_result
-            detail_score_rows = re.findall(
-                r'\|\s*\**[^|]+?\**\s*\|\s*(\d+)\s*分?\s*\|\s*(\d+)\s*分?\s*\|',
-                score_block
-            )
-            if detail_score_rows:
-                calculated_score = sum(int(row[1]) for row in detail_score_rows)
-                if 0 <= calculated_score <= 100:
-                    if calculated_score != metadata['score']:
-                        print(f"  [修正] 综合得分{metadata['score']}→累加值{calculated_score}（评分详情表各维度之和强制重算）")
-                    metadata['score'] = calculated_score
-            
+
+            # 兼容两种列格式：
+            #   格式A（score_calculator.py标准输出）：| 维度 | 权重 | 得分 | 扣分 | 扣分说明 |
+            #   格式B（LLM自行构造）：| 维度 | 权重 | 扣分 | 得分 |
+            # 策略：优先识别"得分"列标题，按列位置提取；
+            #       若无列标题则按格式A（第3列=得分）尝试，验证合计在[0,100]内。
+
+            calculated_score = None
+
+            # 尝试识别表头，确定"得分"列的索引
+            header_match = re.search(r'\|([^\n]+)\|', score_block)
+            if header_match:
+                headers = [h.strip().strip('*') for h in header_match.group(1).split('|')]
+                # 找"得分"列（忽略"加粗"标记）
+                score_col_idx = next(
+                    (i for i, h in enumerate(headers) if '得分' in h and '扣分' not in h),
+                    None
+                )
+                if score_col_idx is not None:
+                    # 按列索引提取每行对应列的数值
+                    dimension_rows = []
+                    for line in score_block.split('\n'):
+                        cells = [c.strip().strip('*') for c in line.split('|')]
+                        # 过滤：有效数据行（非表头、非分隔线、非合计行）
+                        if (len(cells) > score_col_idx + 1
+                                and cells[0] == ''  # markdown表格首尾cell为空
+                                and '合计' not in cells[1]
+                                and '---' not in line):
+                            # 提取该列的纯数字
+                            val_str = re.search(r'\d+', cells[score_col_idx + 1] if score_col_idx + 1 < len(cells) else '')
+                            if val_str:
+                                dimension_rows.append(int(val_str.group()))
+                    if dimension_rows:
+                        total = sum(dimension_rows)
+                        if 0 <= total <= 100:
+                            calculated_score = total
+
+            # 回退：格式A的两列正则（权重列|得分列），取 row[1]
+            if calculated_score is None:
+                detail_score_rows = re.findall(
+                    r'\|\s*\**(?!合计)[^|]+?\**\s*\|\s*\d+\s*分?\s*\|\s*(\d+)\s*分?\s*\|',
+                    score_block
+                )
+                if detail_score_rows:
+                    total = sum(int(v) for v in detail_score_rows)
+                    if 0 <= total <= 100:
+                        calculated_score = total
+
+            if calculated_score is not None:
+                if calculated_score != metadata['score']:
+                    print(f"  [修正] 综合得分{metadata['score']}→{calculated_score}（评分详情表各维度之和强制重算）")
+                metadata['score'] = calculated_score
+            elif metadata['score'] == 0:
+                # 兜底：无法从评分详情表解析得分
+                # 若报告文本声明"完全合规"且"发现 0 处违规"，合理推断得分为100
+                raw_rating = metadata.get('rating', '')
+                zero_violation = bool(re.search(r'发现\s*0\s*处违规', audit_result))
+                if '完全合规' in raw_rating and zero_violation:
+                    print(f"  [推断] {report_id} 无评分表但评级=完全合规且违规数=0，得分推断为100分")
+                    metadata['score'] = 100
+                else:
+                    print(f"  [警告] {report_id} 无法从评分详情表解析得分，综合得分保持0分，请人工复核")
+
+            # 根据最终得分校正评级（不信任 LLM 自行降/升级的行为）
+            final_score = metadata['score']
+            if final_score >= 90:
+                correct_rating = '完全合规'
+            elif final_score >= 60:
+                correct_rating = '局部瑕疵（需微调）'
+            else:
+                correct_rating = '严重违规'
+            if metadata['rating'] and metadata['rating'] != correct_rating:
+                # 只修正与分数不符的评级，去掉 LLM 的主观降/升级
+                print(f"  [修正] 评级'{metadata['rating']}'→'{correct_rating}'（按得分{final_score}分重新映射）")
+                metadata['rating'] = correct_rating
+
             # 违规项计数 + 违规类型
             # 格式：发现 4 处违规，其中硬编码话术不一致 1 处，含有英文字段 1 处，逻辑冲突 2 处
             count_match = re.search(
@@ -358,7 +531,7 @@ class AutoAuditManager:
         """批量审查指定类型的所有报告
         
         Args:
-            report_type: 报告类型 (alert/event/vuln/asset)
+            report_type: 报告类型 (alarm/event/vuln/asset)
             date_str: 指定读取哪天的解读报告（YYYYMMDD），None 则取最新一天
         
         Returns:
@@ -516,7 +689,7 @@ class AutoAuditManager:
 
     def generate_comprehensive_html(self) -> str:
         """解析所有模块的审查总结md，生成综合HTML报告"""
-        report_types = ['asset', 'alert', 'event', 'vuln']
+        report_types = ['asset', 'alarm', 'event', 'vuln']
         modules_data = []
 
         for report_type in report_types:
@@ -561,8 +734,8 @@ class AutoAuditManager:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        type_names = {'asset': '资产解读', 'alert': '安全告警解读', 'event': '安全事件解读', 'vuln': '漏洞解读'}
-        id_labels = {'asset': '资产ID', 'alert': '告警ID', 'event': '事件ID', 'vuln': '漏洞ID'}
+        type_names = {'asset': '资产解读', 'alarm': '安全告警解读', 'event': '安全事件解读', 'vuln': '漏洞解读'}
+        id_labels = {'asset': '资产ID', 'alarm': '告警ID', 'event': '事件ID', 'vuln': '漏洞ID'}
 
         result = {
             'type': report_type,
@@ -645,7 +818,30 @@ class AutoAuditManager:
                     'violation_types': col4 if col4 and col4 != '-' else '',
                     'summary': col5 if col5 and col5 != '-' else '',
                 })
+
+        # ── 用 score_calculator.py 实时重算每个报告的权威得分 ──────────────────
+        # audit.md 与 summary.md 在同一目录，直接拼路径调脚本
+        report_dir = os.path.dirname(filepath)
+        skill_name = self.REPORT_TYPE_SKILL_MAP.get(report_type, '')
+        for detail in details:
+            audit_path = os.path.join(report_dir, f"{detail['id']}_audit.md")
+            if not os.path.exists(audit_path):
+                continue
+            try:
+                with open(audit_path, 'r', encoding='utf-8') as af:
+                    audit_text = af.read()
+                calc = self._run_score_calculator(audit_text, report_type, skill_name, detail['id'])
+                if calc is not None:
+                    detail['score'] = calc['total_score']
+                    detail['rating'] = calc['rating']
+            except Exception as e:
+                print(f"  [HTML计分] {detail['id']} 实时计分失败: {e}")
+
         result['details'] = details
+
+        # avg_score 用实时计分后的分数重算，覆盖 summary.md 里的旧值
+        if details:
+            result['avg_score'] = round(sum(d['score'] for d in details) / len(details), 2)
 
         # 不可审查列表
         not_auditable_match = re.search(r'## ⚠️ 不可审查报告详情.*?(.*?)(?:## ❌|## 📁|---\n\n## 🎯)', content, re.DOTALL)

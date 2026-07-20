@@ -22,7 +22,7 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
     start_time = time.time()
 
     if modules is None:
-        modules = ['asset', 'alert', 'event', 'vuln']
+        modules = ['asset', 'alarm', 'event', 'vuln']
 
     # 提取解读各模块指标（从 agent.results）
     interpret_lines = []
@@ -30,7 +30,7 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
     all_fp_times = []
     all_tr_times = []
     if agent and hasattr(agent, 'results') and agent.results:
-        module_names_cn = {'asset': '资产解读', 'alert': '告警解读', 'event': '事件解读', 'vuln': '漏洞解读'}
+        module_names_cn = {'asset': '资产解读', 'alarm': '告警解读', 'event': '事件解读', 'vuln': '漏洞解读'}
         metric_labels = {
             'chapter_structure_completeness': '结构完整率',
             'risk_level_accuracy': '风险等级',
@@ -66,9 +66,9 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
                     acc_parts.append(f"{label}{mv['avg_accuracy']:.1%}")
                 acc_str = ' '.join(acc_parts)
 
-            # 推荐问题合格率（alert/event 模块）
+            # 推荐问题合格率（alarm/event 模块）
             rq_str = ""
-            if mod_key in ('alert', 'event'):
+            if mod_key in ('alarm', 'event'):
                 rq_list = [
                     r.metrics["recommend_question_quality"]
                     for r in mod_results
@@ -126,7 +126,7 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
 
     try:
         from core.notify.feishu_notify import send_feishu_message
-        module_names = {'asset': '资产', 'alert': '告警', 'event': '事件', 'vuln': '漏洞'}
+        module_names = {'asset': '资产', 'alarm': '告警', 'event': '事件', 'vuln': '漏洞'}
         mod_str = '+'.join(module_names.get(m, m) for m in modules)
         total_cases = total_valid + total_failed + total_invalid
         overall_fp = sum(all_fp_times)/len(all_fp_times) if all_fp_times else 0
@@ -149,7 +149,7 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
 
         # 审查结果统计（所有模块都展示，无报告的显示0）
         lines.append(f"🔍 批量审查 (耗时{duration_str}):")
-        audit_type_names = {'asset': '资产', 'alert': '告警', 'event': '事件', 'vuln': '漏洞'}
+        audit_type_names = {'asset': '资产', 'alarm': '告警', 'event': '事件', 'vuln': '漏洞'}
         for rt in modules:
             result = all_results.get(rt, {})
             s = result.get('summary', {})
@@ -174,7 +174,7 @@ def init_sample_test_cases():
     print("初始化示例测试用例...")
     manager = TestCaseManager()
 
-    for module in ["asset", "vuln", "alert"]:
+    for module in ["asset", "vuln", "alarm"]:
         sample = manager.create_sample_test_case(module)
         filepath = manager.save_test_case(module, sample)
         print(f"  - 创建 {module} 模块示例用例: {filepath}")
@@ -221,7 +221,7 @@ def run_asset_test():
     return agent
 
 
-def run_alert_test():
+def run_alarm_test():
     """运行安全告警解读模块测试"""
     print("\n" + "="*60)
     print("运行安全告警解读模块测试")
@@ -231,27 +231,27 @@ def run_alert_test():
 
     from core.config_loader import ConfigLoader
     config = ConfigLoader()
-    alert_ids = config.test_alerts
+    alarm_ids = config.test_alarms
 
-    if not alert_ids:
+    if not alarm_ids:
         print("⚠️ 配置文件中没有配置测试告警 ID")
         return
 
     from agents.test_case_manager import TestCase
     test_cases = []
-    for idx, alert_id in enumerate(alert_ids):
+    for idx, alarm_id in enumerate(alarm_ids):
         test_case = TestCase(
-            case_id=f"alert_test_{idx+1:02d}",
-            module="alert",
-            input_data={"alert_id": alert_id},
+            case_id=f"alarm_test_{idx+1:02d}",
+            module="alarm",
+            input_data={"alarm_id": alarm_id},
             expected_output={},
-            description=f"告警解读测试 - {alert_id}",
-            tags=["automated", "alert"]
+            description=f"告警解读测试 - {alarm_id}",
+            tags=["automated", "alarm"]
         )
         test_cases.append(test_case)
 
     print(f"\n准备执行 {len(test_cases)} 个告警解读测试用例...")
-    results = agent.run_module_tests("alert", test_cases)
+    results = agent.run_module_tests("alarm", test_cases)
 
     if results:
         print(f"\n{'='*60}")
@@ -266,13 +266,13 @@ def main():
     parser = argparse.ArgumentParser(description="AI 解读自动化测试智能体")
     parser.add_argument(
         "--mode",
-        choices=["init", "asset", "alert", "all"],
+        choices=["init", "asset", "alarm", "all"],
         default="asset",
-        help="运行模式: init=初始化示例用例, asset=资产解读测试, alert=告警解读测试, all=全模块测试"
+        help="运行模式: init=初始化示例用例, asset=资产解读测试, alarm=告警解读测试, all=全模块测试"
     )
     parser.add_argument(
         "--module",
-        choices=["asset", "vuln", "alert", "event"],
+        choices=["asset", "vuln", "alarm", "event"],
         help="指定模块测试（优先级高于--mode）"
     )
 
@@ -285,8 +285,8 @@ def main():
     if args.module:
         if args.module == "asset":
             agent = run_asset_test()
-        elif args.module == "alert":
-            agent = run_alert_test()
+        elif args.module == "alarm":
+            agent = run_alarm_test()
         elif args.module == "vuln":
             print("\n" + "="*60)
             print("运行漏洞解读模块测试")
@@ -367,15 +367,15 @@ def main():
         agent = run_asset_test()
         run_batch_audit_after_interpret(['asset'], run_date=agent.run_date, agent=agent)
         return
-    elif args.mode == "alert":
-        agent = run_alert_test()
-        run_batch_audit_after_interpret(['alert'], run_date=agent.run_date, agent=agent)
+    elif args.mode == "alarm":
+        agent = run_alarm_test()
+        run_batch_audit_after_interpret(['alarm'], run_date=agent.run_date, agent=agent)
         return
     elif args.mode == "all":
         agent = AIInterpretAgent()
         agent.run_all_tests()
         # 用 agent.run_date（启动时日期），确保跨午夜时审查和解读读同一目录
-        run_batch_audit_after_interpret(['asset', 'alert', 'event', 'vuln'], run_date=agent.run_date, agent=agent)
+        run_batch_audit_after_interpret(['asset', 'alarm', 'event', 'vuln'], run_date=agent.run_date, agent=agent)
         return
     else:
         print(f"❌ 未知模式: {args.mode}")

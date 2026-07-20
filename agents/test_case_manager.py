@@ -29,7 +29,7 @@ class TestCaseManager:
     MODULES = {
         "asset": "资产解读",
         "vuln": "漏洞解读",
-        "alert": "安全告警解读",
+        "alarm": "安全告警解读",
         "event": "安全事件解读"
     }
 
@@ -143,11 +143,11 @@ class TestCaseManager:
                 description="漏洞解读示例测试用例",
                 tags=["sample", "basic"]
             )
-        elif module == "alert":
+        elif module == "alarm":
             return TestCase(
-                case_id="alert_sample_001",
-                module="alert",
-                input_data={"alert_id": "8414306276020527104"},
+                case_id="alarm_sample_001",
+                module="alarm",
+                input_data={"alarm_id": "8414306276020527104"},
                 expected_output={
                     "threat_determination": "攻击成功",
                 },

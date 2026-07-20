@@ -1,6 +1,6 @@
 ---
-name: asset-interpretation
-description: 资产解读与资产调查技能。当用户要求解读资产、分析资产风险、调查资产时调用。
+name: asset_interpretation
+description: 资产解读与资产调查技能。当用户要求解读资产、分析资产风险、调查资产时调用。当用户是查询或编辑资产时，一定不可使用。
 ---
 
 # 资产安全解读
@@ -72,8 +72,8 @@ description: 资产解读与资产调查技能。当用户要求解读资产、�
 ### 第二步：统计概览（并行，极轻量）
 以下三个工具必须调用：
 - `vuln_getVulnLevelGroup(assetId)` → 漏洞等级分布
-- `alarm_groupAlarm(groupFieldList="RISK_LEVEL", victimIp=资产IP)` → 告警等级分布
-- `alarm_groupEvent(groupFieldList="RISK_LEVEL", victimIp=资产IP)` → 事件等级分布
+- `alarm_groupAlarm(groupFieldList="RISK_LEVEL", targetIp=资产IP)` → 告警等级分布
+- `alarm_groupEvent(groupFieldList="RISK_LEVEL", targetIp=资产IP)` → 事件等级分布
 
 ### 第三步：评分关键节点调查
 

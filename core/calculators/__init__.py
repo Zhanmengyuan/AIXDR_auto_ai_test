@@ -6,7 +6,7 @@ from .base_calculator import BaseCalculator, MetricResult
 from .field_completeness_calc import FieldCompletenessCalculator
 from .vuln_accuracy_calc import VulnAccuracyCalculator
 from .risk_level_calc import RiskLevelCalculator
-from .alert_accuracy_calc import AlertAccuracyCalculator
+from .alarm_accuracy_calc import AlarmAccuracyCalculator
 from .event_accuracy_calc import EventAccuracyCalculator
 from .format_compliance_calc import FormatComplianceCalculator
 from .response_time_calc import ResponseTimeCalculator
@@ -22,7 +22,7 @@ __all__ = [
     "FieldCompletenessCalculator",
     "VulnAccuracyCalculator",
     "RiskLevelCalculator",
-    "AlertAccuracyCalculator",
+    "AlarmAccuracyCalculator",
     "EventAccuracyCalculator",
     "FormatComplianceCalculator",
     "ResponseTimeCalculator",
