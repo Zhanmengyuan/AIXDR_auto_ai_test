@@ -63,7 +63,7 @@ class AIInterpretAgent:
         "asset": {
             "name": "资产解读",
             "agent": "asset",
-            "biz_type": 3,
+            "biz_type": 4,
             "id_field": "asset_id",
             "api_client": AssetAPIClient,
             "calculators": [
@@ -79,7 +79,7 @@ class AIInterpretAgent:
         "vuln": {
             "name": "漏洞解读",
             "agent": "vuln",
-            "biz_type": 4,
+            "biz_type": 3,
             "id_field": "vuln_id",
             "api_client": VulnAPIClient,
             "calculators": [
@@ -170,10 +170,10 @@ class AIInterpretAgent:
         elif module == "vuln":
             # 先获取漏洞详情，提取漏洞名称
             question = f"请为我分析这个漏洞,编号：{input_id}"
-            biz_type = 4
+            biz_type = 3
         else:  # asset
             question = f"请为我调查这个资产,资产ID: {input_id}"
-            biz_type = 3
+            biz_type = 4
 
         getsessionid_payload = {
             "userId": -1,
@@ -223,7 +223,7 @@ class AIInterpretAgent:
                     headers={**headers, "Accept": "text/event-stream"},
                     stream=True,
                     verify=False,
-                    timeout=120
+                    timeout=180
                 ) as resp:
                     if resp.status_code != 200:
                         print(f"  [SSE连接失败] HTTP {resp.status_code}")
@@ -316,7 +316,7 @@ class AIInterpretAgent:
                     "question": f"请为我调查这个资产,资产ID: {input_id}",
                     "agent": "asset",
                     "bizId": input_id,
-                    "bizType": 3,
+                    "bizType": 4,
                     "fileId": [],
                     "network": False,
                     "recommend": False,
@@ -363,7 +363,7 @@ class AIInterpretAgent:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-        sse_thread.join(timeout=120)
+        sse_thread.join(timeout=180)
 
         if not raw_text:
             return {"success": False, "error": "无AI响应内容"}
@@ -713,6 +713,14 @@ class AIInterpretAgent:
 
         # ========== 资产解读模块 ==========
         if module == "asset":
+            # 0. 检测不完整报告：连接中断导致AI未完成生成，全无报告章节（风险速览/风险轨迹/当前威胁），不参与指标计算
+            asset_sections = ["风险速览", "风险轨迹", "当前威胁"]
+            raw_text = test_result.raw_text or ""
+            if not any(s in raw_text for s in asset_sections):
+                test_result.is_invalid = True
+                test_result.error = "AI未完成报告生成（所有必需章节缺失），属于失效样本"
+                return metrics
+
             # 1. 结构完整率
             from core.calculators import StructureCompletenessCalculator
             try:
@@ -955,7 +963,7 @@ class AIInterpretAgent:
 
         # 1. 尝试从"一句话总结"或类似标题后提取（在 clean_text 上匹配，避免 ** 干扰）
         summary_patterns = [
-            r'(?:一句话总结|核心结论|分析摘要|事件概述)\s*[：:为]?\s*(.+?)(?:\n\n|\n#{1,6}\s|\Z)',
+            r'(?:一句话总结)\s*[：:为]?\s*(.+?)(?:\n---|\n\n|\n#{1,6}\s|\Z)',
         ]
         for pattern in summary_patterns:
             match = re.search(pattern, clean_text, re.IGNORECASE | re.DOTALL)
@@ -974,10 +982,11 @@ class AIInterpretAgent:
         lines = raw_text.split('\n')
         for line in lines:
             line = line.strip()
-            # 跳过标题、空行、纯符号行、元数据行
-            if not line or line.startswith('#') or line.startswith('---') or line.startswith('|'):
+            # 跳过标题、空行、纯符号行、元数据行、引用块行（> 开头）
+            if not line or line.startswith('#') or line.startswith('---') or line.startswith('|') or line.startswith('>'):
                 continue
-            if re.match(r'^\*{2}(?:event_id|事件编号|alarm_id|告警编号|时间|生成时间)\*{2}', line):
+            # 跳过元数据行：兼容裸 **字段名** 和去粗体后的 字段名：值 等格式
+            if re.match(r'^\*{0,2}(?:event_id|事件编号|alarm_id|告警编号|时间|生成时间|告警名称|告警编号|event_name|alarm_name)\*{0,2}[：:\s]', line):
                 continue
             if len(line) > 15:
                 return line[:300]

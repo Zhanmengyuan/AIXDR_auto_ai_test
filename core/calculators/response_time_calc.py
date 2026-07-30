@@ -35,6 +35,9 @@ class ResponseTimeCalculator(BaseCalculator):
         """
         chat_url = f"{self.base_url}/maxs/szr/chat/chat"
         session_id = f"-1@{datetime.now().strftime('%Y%m%d%H%M%S')}-0000-000000000000"
+        timestamp_ms = int(time.time() * 1000)
+        random_str = "".join([chr(ord('a') + i % 26) for i in range(8)])
+        conversation_id = f"{session_id}@{timestamp_ms}-{random_str}"
 
         chat_payload = {
             "question": f"请为我调查这个资产,资产ID: {asset_id}",
@@ -45,6 +48,7 @@ class ResponseTimeCalculator(BaseCalculator):
             "network": False,
             "recommend": False,
             "sessionId": session_id,
+            "conversationId": conversation_id,
             "tag": "id"
         }
 
