@@ -18,21 +18,24 @@ class AutoAuditManager:
         'asset': 'asset_report_audit',
         'alarm': 'alarm_report_audit',
         'event': 'event_report_audit',
-        'vuln': 'vuln_report_audit'
+        'vuln': 'vuln_report_audit',
+        'sandbox': 'sandbox_report_audit'
     }
 
     REPORT_TYPE_DIR_MAP = {
         'asset': 'asset_report',
         'alarm': 'alarm_report',
         'event': 'event_report',
-        'vuln': 'vuln_report'
+        'vuln': 'vuln_report',
+        'sandbox': 'sandbox_report'
     }
     
     REPORT_TYPE_NAME_MAP = {
         'asset': '资产',
         'alarm': '告警',
         'event': '事件',
-        'vuln': '漏洞'
+        'vuln': '漏洞',
+        'sandbox': '沙箱'
     }
     
     def __init__(self, base_dir: str = None, run_date: str = None):
@@ -105,13 +108,15 @@ class AutoAuditManager:
         filename = os.path.basename(filepath)
         
         if report_type == 'asset':
-            match = re.search(r'asset_report_(\d+)\.md', filename)
+            match = re.search(r'asset_report_(?:\d{2}_)?(.+?)\.md', filename)
         elif report_type == 'alarm':
-            match = re.search(r'alarm_report_(\d+)\.md', filename)
+            match = re.search(r'alarm_report_(?:\d{2}_)?(.+?)\.md', filename)
         elif report_type == 'event':
-            match = re.search(r'event_report_(\d+)\.md', filename)
+            match = re.search(r'event_report_(?:\d{2}_)?(.+?)\.md', filename)
         elif report_type == 'vuln':
-            match = re.search(r'vuln_report_(\d+)\.md', filename)
+            match = re.search(r'vuln_report_(?:\d{2}_)?(.+?)\.md', filename)
+        elif report_type == 'sandbox':
+            match = re.search(r'sandbox_report_(?:\d{2}_)?(.+?)\.md', filename)
         else:
             return None
         

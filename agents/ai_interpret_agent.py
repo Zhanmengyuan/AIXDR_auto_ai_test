@@ -6,7 +6,6 @@ import sys
 import os
 import time
 import json
-import threading
 import requests
 import urllib3
 from datetime import datetime
@@ -15,14 +14,27 @@ from dataclasses import dataclass, asdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from core.config_loader import ConfigLoader
-from core.api_clients import AssetAPIClient, VulnAPIClient, AlarmAPIClient, EventAPIClient
+from core.api_clients import AssetAPIClient, VulnAPIClient, AlarmAPIClient, EventAPIClient, SandboxAPIClient
 from core.extractors import AIExtractor
+from core.contract import (
+    StandardResult,
+    Metric,
+    metric_from_calculator_result,
+    STATUS_VALID,
+    STATUS_FAILED,
+    STATUS_INVALID,
+)
 from core.calculators import (
     RiskLevelCalculator,
     ResponseTimeCalculator,
     FieldCompletenessCalculator,
     FormatComplianceCalculator,
-    CVSSCalculator
+    CVSSCalculator,
+    SandboxRiskLevelCalculator,
+    SandboxInfoExtractionCalculator,
+    SandboxDisposalCalculator,
+    SandboxFormatCalculator,
+    SandboxCompletenessCalculator,
 )
 from core.reporter import ReportGenerator
 from core.reporter.html_report_generator import HTMLReportGenerator
@@ -43,6 +55,7 @@ class TestResult:
     case_id: str
     module: str
     success: bool
+    agent_id: str = ""
     input_id: str = ""
     raw_text: str = ""
     parsed_data: Dict[str, Any] = None
@@ -54,6 +67,7 @@ class TestResult:
     timestamp: str = ""
     is_invalid: bool = False  # API数据失效（业务数据不存在）
     recommend_questions: list = None  # SSE流中捕获的推荐问题
+    standard_result: Any = None  # StandardResult 契约对象（run_test_case结尾自动转换）
 
 
 class AIInterpretAgent:
@@ -121,6 +135,26 @@ class AIInterpretAgent:
                 "事件定性", "关键实体", "攻击结果与举证",
                 "当前攻击影响", "风险预测", "处置建议"
             ]
+        },
+        "sandbox": {
+            "name": "沙箱报告解读",
+            "agent": "sandbox",
+            "biz_type": 6,
+            "id_field": "sandbox_id",
+            "api_client": SandboxAPIClient,
+            "calculators": [
+                SandboxRiskLevelCalculator,
+                SandboxInfoExtractionCalculator,
+                SandboxDisposalCalculator,
+                SandboxFormatCalculator,
+                SandboxCompletenessCalculator,
+            ],
+            "required_sections": [
+                "执行环境", "样本信息", "风险评估", "违规与检测依据",
+                "关键系统行为", "网络行为分析", "释放文件分析",
+                "黑名单命中情况", "威胁类型判断",
+                "总体风险判断", "建议处置方式"
+            ]
         }
     }
 
@@ -137,6 +171,7 @@ class AIInterpretAgent:
         self._alarm_client = AlarmAPIClient(self.config)
         self._event_client = EventAPIClient(self.config)
         self._vuln_client = VulnAPIClient(self.config)
+        self._sandbox_client = SandboxAPIClient(self.config)
 
     def call_ai_with_timing(
         self,
@@ -144,16 +179,20 @@ class AIInterpretAgent:
         input_id: str
     ) -> Dict[str, Any]:
         """调用 AI 接口并测量响应时间"""
+
+        # 沙箱模块使用异步接口（submit + 轮询getResult），不走SSE流式chat
+        if module == "sandbox":
+            return self._call_sandbox_ai(input_id)
+
+        import uuid
+
         config = self.MODULE_CONFIG[module]
         base_url = self.config.base_url
         headers = self.config.headers
 
-        session_id = f"-1@{datetime.now().strftime('%Y%m%d%H%M%S')}-{input_id[-8:]}"
+        # 本地生成 sessionId（UUID 格式，模拟服务端生成格式）
+        session_id = f"-1@{uuid.uuid4()}"
         alarm_info = ""
-        conversation_id = ""
-
-        # 所有模块都需要先获取sessionId（大写I）
-        getsessionid_url = f"{base_url}/maxs/szr/chat/getSessionId"
 
         if module == "alarm":
             api_data = self._alarm_client.get_alarm_detail(input_id)
@@ -163,207 +202,123 @@ class AIInterpretAgent:
                 if alarm_type:
                     alarm_info = f"查询木马相关域名：{alarm_type}，"
             question = f"请为我分析检测到{alarm_info}告警ID：{input_id}"
-            biz_type = 1
         elif module == "event":
             question = f"请为我调查这个安全事件,事件ID: {input_id}"
-            biz_type = 2
         elif module == "vuln":
-            # 先获取漏洞详情，提取漏洞名称
             question = f"请为我分析这个漏洞,编号：{input_id}"
-            biz_type = 3
         else:  # asset
             question = f"请为我调查这个资产,资产ID: {input_id}"
-            biz_type = 4
 
-        getsessionid_payload = {
+        chat_url = f"{base_url}/maxs/szr/chat/chat"
+        chat_payload = {
+            "newSession": True,
             "userId": -1,
             "question": question,
-            "bizType": biz_type
+            "sessionId": session_id,
+            "tag": "id",
+            "bizType": config["biz_type"],
+            "bizId": input_id,
+            "agent": config["agent"],
+            "network": False,
+            "fileId": [],
+            "recommend": False
         }
 
-        try:
-            session_resp = requests.post(
-                getsessionid_url,
-                headers=headers,
-                json=getsessionid_payload,
-                verify=False,
-                timeout=30
-            )
-            if session_resp.status_code == 200:
-                session_result = session_resp.json()
-                # sessionId在message字段中（UUID格式）
-                session_id = session_result.get("message", session_id)
-                # 生成conversationId格式：sessionId@时间戳-随机字符串
-                timestamp_ms = int(time.time() * 1000)
-                random_str = "".join([chr(ord('a') + i % 26) for i in range(8)])
-                conversation_id = f"{session_id}@{timestamp_ms}-{random_str}"
-        except Exception as e:
-            print(f"  [获取sessionId异常] {e}")
-
         raw_text = ""
-        recommend_questions = []  # 捕获推荐问题
-        stream_completed = False
+        recommend_questions = []
         first_packet_time = None
         total_time = None
         start_time = time.time()
-        connect_url = f"{base_url}/maxs/szr/chat/connect"
-        chat_url = f"{base_url}/maxs/szr/chat/chat"
-
-        sse_connected = threading.Event()
-        
-        def listen_sse():
-            nonlocal raw_text, stream_completed, first_packet_time, total_time, recommend_questions
-            try:
-                with requests.get(
-                    connect_url,
-                    params={
-                        "sessionId": session_id,
-                        "conversationId": conversation_id
-                    },
-                    headers={**headers, "Accept": "text/event-stream"},
-                    stream=True,
-                    verify=False,
-                    timeout=180
-                ) as resp:
-                    if resp.status_code != 200:
-                        print(f"  [SSE连接失败] HTTP {resp.status_code}")
-                        sse_connected.set()  # 即使失败也要通知
-                        return
-
-                    # SSE连接成功,通知可以发送chat请求
-                    sse_connected.set()
-                    
-                    for line in resp.iter_lines():
-                        elapsed = time.time() - start_time
-
-                        if first_packet_time is None and line:
-                            first_packet_time = elapsed
-
-                        if not line:
-                            continue
-                        try:
-                            line_str = line.decode('utf-8')
-                        except UnicodeDecodeError:
-                            try:
-                                line_str = line.decode('gbk')
-                            except:
-                                line_str = line.decode('latin-1', errors='replace')
-
-                        if line_str.startswith("data:") or line_str.startswith("data :"):
-                            data_str = line_str.lstrip().replace("data:", "").replace("data :", "").strip()
-                            if data_str == "[DONE]":
-                                stream_completed = True
-                                total_time = time.time() - start_time
-                                return
-                            try:
-                                json_data = json.loads(data_str)
-                                code = json_data.get("code")
-                                answer_type = str(json_data.get("answerType", "")).lower()
-
-                                # 各模块按各自的终止信号记录报告生成结束时间
-                                if str(code) == "200" and total_time is None:
-                                    data_val = json_data.get("data", "")
-                                    # 告警/事件：收到 recommend_start 时结束计时
-                                    if module in ("alarm", "event") and answer_type == "recommend_start":
-                                        total_time = time.time() - start_time
-                                    # 漏洞：收到 answerType=text, data="<END_OF_TURN>" 时结束计时
-                                    elif module == "vuln" and answer_type == "text" and data_val == "<END_OF_TURN>":
-                                        total_time = time.time() - start_time
-                                    # 资产：收到 confirm_plan_start 时结束计时
-                                    elif module == "asset" and answer_type == "confirm_plan_start":
-                                        total_time = time.time() - start_time
-
-                                # 兼容不同返回结构
-                                chunk = json_data.get("data", "")
-                                if isinstance(chunk, dict):
-                                    chunk = chunk.get("content") or chunk.get("text") or ""
-                                if not isinstance(chunk, str):
-                                    chunk = str(chunk) if chunk is not None else ""
-
-                                # 接受 text / markdown 等常见类型，避免因类型变化导致丢失正文
-                                accepted_types = {"text", "markdown", "md", "content", "answer", ""}
-                                if str(code) == "200" and answer_type in accepted_types and chunk:
-                                    raw_text += chunk
-
-                                # 捕获推荐问题（answerType=recommend）
-                                if str(code) == "200" and answer_type == "recommend" and chunk:
-                                    try:
-                                        questions = json.loads(chunk) if isinstance(chunk, str) else chunk
-                                        if isinstance(questions, list):
-                                            recommend_questions = questions
-                                    except Exception:
-                                        pass
-
-                                # 某些场景 answerType 缺失或非标准，但 data 中仍有可用文本
-                                if str(code) == "200" and chunk and not answer_type:
-                                    raw_text += chunk
-                            except:
-                                continue
-            except Exception as e:
-                print(f"  [SSE异常] {e}")
-
-        sse_thread = threading.Thread(target=listen_sse, daemon=True)
-        sse_thread.start()
-        
-        # 等待SSE连接建立后再发送chat请求
-        if not sse_connected.wait(timeout=10):
-            print("  [超时] SSE连接未在10秒内建立")
-            return {"success": False, "error": "SSE连接超时"}
 
         try:
-            if module == "asset":
-                chat_payload = {
-                    "question": f"请为我调查这个资产,资产ID: {input_id}",
-                    "agent": "asset",
-                    "bizId": input_id,
-                    "bizType": 4,
-                    "fileId": [],
-                    "network": False,
-                    "recommend": False,
-                    "sessionId": session_id,
-                    "conversationId": conversation_id,
-                    "tag": "id"
-                }
-            elif module == "alarm":
-                chat_payload = {
-                    "question": f"请为我分析检测到{alarm_info}告警ID：{input_id}",
-                    "sessionId": session_id,
-                    "conversationId": conversation_id,
-                    "tag": "id",
-                    "bizType": 1,
-                    "bizId": input_id,
-                    "agent": "alarm",
-                    "network": False,
-                    "fileId": [],
-                    "recommend": False
-                }
-            else:
-                chat_payload = {
-                    "question": f"请为我调查这个{config['name']},{config['id_field']}: {input_id}",
-                    "agent": config["agent"],
-                    "bizId": input_id,
-                    "bizType": config["biz_type"],
-                    "fileId": [],
-                    "network": False,
-                    "recommend": False,
-                    "sessionId": session_id,
-                    "conversationId": conversation_id,
-                    "tag": "id"
-                }
-
             resp = requests.post(
                 chat_url,
-                headers=headers,
+                headers={**headers, "Accept": "text/event-stream"},
                 json=chat_payload,
+                stream=True,
                 verify=False,
-                timeout=30
+                timeout=180
             )
             if resp.status_code != 200:
                 return {"success": False, "error": f"HTTP {resp.status_code}"}
+
+            content_type = resp.headers.get("Content-Type", "")
+            if "text/event-stream" not in content_type:
+                try:
+                    body = resp.text[:500]
+                    err_data = json.loads(body)
+                    err_msg = err_data.get("message", body)
+                except Exception:
+                    err_msg = body if content_type else "响应非SSE流"
+                return {"success": False, "error": f"非SSE响应(Content-Type={content_type}): {err_msg}"}
+
+            for line in resp.iter_lines():
+                elapsed = time.time() - start_time
+
+                if first_packet_time is None and line:
+                    first_packet_time = elapsed
+
+                if not line:
+                    continue
+                try:
+                    line_str = line.decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        line_str = line.decode('gbk')
+                    except:
+                        line_str = line.decode('latin-1', errors='replace')
+
+                if line_str.startswith("data:") or line_str.startswith("data :"):
+                    data_str = line_str.lstrip().replace("data:", "").replace("data :", "").strip()
+                    if data_str == "[DONE]":
+                        total_time = time.time() - start_time
+                        break
+                    try:
+                        json_data = json.loads(data_str)
+                        code = json_data.get("code")
+                        answer_type = str(json_data.get("answerType", "")).lower()
+
+                        # 各模块按各自的终止信号记录报告生成结束时间
+                        if str(code) == "200" and total_time is None:
+                            data_val = json_data.get("data", "")
+                            # 告警/事件：收到 recommend_start 时结束计时
+                            if module in ("alarm", "event") and answer_type == "recommend_start":
+                                total_time = time.time() - start_time
+                            # 漏洞：收到 answerType=text, data="<END_OF_TURN>" 时结束计时
+                            elif module == "vuln" and answer_type == "text" and data_val == "<END_OF_TURN>":
+                                total_time = time.time() - start_time
+                            # 资产：收到 confirm_plan_start 时结束计时
+                            elif module == "asset" and answer_type == "confirm_plan_start":
+                                total_time = time.time() - start_time
+
+                        # 兼容不同返回结构
+                        chunk = json_data.get("data", "")
+                        if isinstance(chunk, dict):
+                            chunk = chunk.get("content") or chunk.get("text") or ""
+                        if not isinstance(chunk, str):
+                            chunk = str(chunk) if chunk is not None else ""
+
+                        # 接受 text / markdown 等常见类型，避免因类型变化导致丢失正文
+                        accepted_types = {"text", "markdown", "md", "content", "answer", ""}
+                        if str(code) == "200" and answer_type in accepted_types and chunk:
+                            raw_text += chunk
+
+                        # 捕获推荐问题（answerType=recommend）
+                        if str(code) == "200" and answer_type == "recommend" and chunk:
+                            try:
+                                questions = json.loads(chunk) if isinstance(chunk, str) else chunk
+                                if isinstance(questions, list):
+                                    recommend_questions = questions
+                            except Exception:
+                                pass
+
+                        # 某些场景 answerType 缺失或非标准，但 data 中仍有可用文本
+                        if str(code) == "200" and chunk and not answer_type:
+                            raw_text += chunk
+                    except:
+                        continue
         except Exception as e:
             return {"success": False, "error": str(e)}
-
-        sse_thread.join(timeout=180)
 
         if not raw_text:
             return {"success": False, "error": "无AI响应内容"}
@@ -389,11 +344,45 @@ class AIInterpretAgent:
             "parsed_data": parsed_data,
             "first_packet_time": first_packet_time or 0,
             "total_time": total_time or 0,
-            "recommend_questions": recommend_questions  # 推荐问题列表
+            "recommend_questions": recommend_questions
         }
 
-    def save_results(self, module: str, input_id: str, raw_text: str, parsed_data: Dict[str, Any], recommend_questions: list = None) -> None:
-        """保存解析结果到文件（用启动日期归档，避免跨午夜目录切换）"""
+    def _call_sandbox_ai(self, biz_id: str) -> Dict[str, Any]:
+        """沙箱模块专用：异步submit + 轮询getResult获取解读报告"""
+        start_time = time.time()
+
+        result = self._sandbox_client.submit_and_wait(biz_id, biz_type=6, poll_interval=5, max_wait=180)
+
+        if not result.get("success"):
+            return {"success": False, "error": result.get("error", "沙箱解读失败")}
+
+        raw_text = result["result"]
+        first_packet_time = result.get("first_packet_time", 0)
+        total_time = result.get("total_time", time.time() - start_time)
+
+        parsed_data = self._parse_sandbox(raw_text)
+
+        return {
+            "success": True,
+            "raw_text": raw_text,
+            "parsed_data": parsed_data,
+            "first_packet_time": first_packet_time,
+            "total_time": total_time,
+            "recommend_questions": []
+        }
+
+    def _parse_sandbox(self, raw_text: str) -> Dict[str, Any]:
+        """解析沙箱AI解读报告"""
+        from core.extractors.sandbox_extractor import SandboxExtractor
+        extractor = SandboxExtractor()
+        return extractor.extract_all(raw_text)
+
+    def save_results(self, module: str, input_id: str, raw_text: str, parsed_data: Dict[str, Any], recommend_questions: list = None, index: int = None) -> None:
+        """保存解析结果到文件（用启动日期归档，避免跨午夜目录切换）
+
+        Args:
+            index: 样本序号（对应 config 顺序），非空时文件名加序号前缀，便于对照
+        """
         output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs", "ai_test_agent", self.run_date)
 
         if module == "asset":
@@ -416,13 +405,26 @@ class AIInterpretAgent:
             json_dir = os.path.join(output_dir, "event_raw_json")
             prefix = "event_report"
             data_prefix = "event_data"
+        elif module == "sandbox":
+            md_dir = os.path.join(output_dir, "sandbox_raw_md")
+            json_dir = os.path.join(output_dir, "sandbox_raw_json")
+            prefix = "sandbox_report"
+            data_prefix = "sandbox_data"
         else:
             return
 
         os.makedirs(md_dir, exist_ok=True)
         os.makedirs(json_dir, exist_ok=True)
 
-        md_file = os.path.join(md_dir, f"{prefix}_{input_id}.md")
+        # 文件名带序号前缀（对应 config 顺序），便于排序后对照
+        if index is not None:
+            md_name = f"{prefix}_{index:02d}_{input_id}.md"
+            json_name = f"{data_prefix}_{index:02d}_{input_id}.json"
+        else:
+            md_name = f"{prefix}_{input_id}.md"
+            json_name = f"{data_prefix}_{input_id}.json"
+
+        md_file = os.path.join(md_dir, md_name)
         with open(md_file, 'w', encoding='utf-8') as f:
             f.write(f"# AI 智能体响应 - {self.MODULE_CONFIG[module]['name']}报告\n\n")
             f.write(f"**{self.MODULE_CONFIG[module]['id_field']}**: {input_id}\n\n")
@@ -435,7 +437,7 @@ class AIInterpretAgent:
                 for i, q in enumerate(recommend_questions, 1):
                     f.write(f"{i}. {q}\n")
 
-        json_file = os.path.join(json_dir, f"{data_prefix}_{input_id}.json")
+        json_file = os.path.join(json_dir, json_name)
         with open(json_file, 'w', encoding='utf-8') as f:
             save_data = {
                 self.MODULE_CONFIG[module]['id_field']: input_id,
@@ -568,6 +570,7 @@ class AIInterpretAgent:
             case_id=test_case.case_id,
             module=test_case.module,
             success=False,
+            agent_id=f"ai_interpret_{test_case.module}",
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             expected_data=test_case.expected_output
         )
@@ -601,7 +604,12 @@ class AIInterpretAgent:
             if result.recommend_questions:
                 print(f"   💡 推荐问题: {len(result.recommend_questions)}个")
 
-            self.save_results(test_case.module, input_id, result.raw_text, result.parsed_data, result.recommend_questions)
+            # 从 case_id 提取序号（如 sandbox_test_01 → 1），用于文件名标注
+            import re as _re
+            _m = _re.search(r'_(\d+)$', test_case.case_id)
+            index = int(_m.group(1)) if _m else None
+
+            self.save_results(test_case.module, input_id, result.raw_text, result.parsed_data, result.recommend_questions, index=index)
 
             result.metrics = self._calculate_metrics(test_case.module, result, input_id)
 
@@ -639,6 +647,16 @@ class AIInterpretAgent:
                         "chapter_structure_completeness": "1.6章结构完整率",
                         "threat_determination_accuracy": "2.威胁定性准确率",
                         "attack_result_accuracy": "3.攻击结果准确率"
+                    }
+                },
+                "sandbox": {
+                    "metrics_order": ["risk_level_accuracy", "sample_info_accuracy", "disposal_rationality", "format_compliance", "section_completeness"],
+                    "labels": {
+                        "risk_level_accuracy": "1.风险评估等级判定准确性",
+                        "sample_info_accuracy": "2.样本信息提取正确率",
+                        "disposal_rationality": "3.处置建议合理性",
+                        "format_compliance": "4.格式规范性",
+                        "section_completeness": "5.章节完整性"
                     }
                 }
             }
@@ -682,7 +700,54 @@ class AIInterpretAgent:
             result.error = str(e)
             print(f"   ❌ 测试执行异常: {e}")
 
+        result.standard_result = self.to_standard_result(result)
         return result
+
+    def to_standard_result(self, test_result: TestResult) -> StandardResult:
+        """将 TestResult 转换为 StandardResult 契约对象
+
+        所有智能体的测试结果归一为 StandardResult，供后续跨智能体聚合和统一报告使用。
+        """
+        if not test_result.success:
+            status = STATUS_FAILED
+        elif test_result.is_invalid:
+            status = STATUS_INVALID
+        else:
+            status = STATUS_VALID
+
+        agent_id = test_result.agent_id or f"ai_interpret_{test_result.module}"
+
+        _METRIC_FALLBACK = {
+            "first_packet_time": {"dimension": "performance", "name_cn": "首包响应时间"},
+            "total_response_time": {"dimension": "performance", "name_cn": "总响应时间"},
+        }
+
+        metric_list = []
+        for metric_key, metric_data in (test_result.metrics or {}).items():
+            if not isinstance(metric_data, dict):
+                continue
+            fallback = _METRIC_FALLBACK.get(metric_key, {})
+            dimension = metric_data.get("dimension", fallback.get("dimension", "accuracy"))
+            metric = metric_from_calculator_result(metric_data, dimension)
+            if not metric.key:
+                metric.key = metric_key
+            if not metric.name_cn:
+                metric.name_cn = fallback.get("name_cn", metric_key)
+            metric_list.append(metric)
+
+        return StandardResult(
+            agent_id=agent_id,
+            case_id=test_result.case_id,
+            sample_id=test_result.input_id,
+            run_id=self.run_date,
+            status=status,
+            first_packet_time=test_result.first_packet_time,
+            total_response_time=test_result.total_response_time,
+            metrics=metric_list,
+            raw_text=test_result.raw_text,
+            error=test_result.error,
+            timestamp=test_result.timestamp,
+        )
 
     def _calculate_metrics(self, module: str, test_result: TestResult, input_id: str) -> Dict[str, Any]:
         """计算各项指标
@@ -696,19 +761,22 @@ class AIInterpretAgent:
         metrics = {}
 
         # ========== 通用指标：首包响应时间 ==========
+        total_threshold = 100 if module == "sandbox" else 150
         metrics["first_packet_time"] = {
             "value": test_result.first_packet_time,
             "unit": "秒",
             "threshold": "≤3秒",
-            "passed": test_result.first_packet_time <= 3
+            "passed": test_result.first_packet_time <= 3,
+            "dimension": "performance"
         }
 
         # ========== 通用指标：总包处理时长 ==========
         metrics["total_response_time"] = {
             "value": test_result.total_response_time,
             "unit": "秒",
-            "threshold": "≤150秒",
-            "passed": test_result.total_response_time <= 150
+            "threshold": f"≤{total_threshold}秒",
+            "passed": test_result.total_response_time <= total_threshold,
+            "dimension": "performance"
         }
 
         # ========== 资产解读模块 ==========
@@ -770,6 +838,7 @@ class AIInterpretAgent:
                     "ai_value": f'{len(test_result.parsed_data.get("required_sections", [])) - len(test_result.parsed_data.get("missing_sections", []))}/{len(test_result.parsed_data.get("required_sections", []))}',
                     "api_value": "动态章节",
                     "is_passed": test_result.parsed_data["format_compliance"] == 1.0,
+                    "dimension": "accuracy",
                     "detail": test_result.parsed_data
                 }
 
@@ -898,6 +967,81 @@ class AIInterpretAgent:
                     module="event"
                 )
                 metrics["recommend_question_quality"] = rq_metric
+
+        # ========== 沙箱报告解读模块 ==========
+        elif module == "sandbox":
+            from core.extractors.sandbox_extractor import SandboxExtractor
+            extractor = SandboxExtractor()
+
+            # 获取沙箱原始报告（EXT_FIELD_ONE）作为基准真值，直接用文件哈希/文件名查找
+            sandbox_api = self._sandbox_client.get_sandbox_detail(input_id)
+            api_valid = sandbox_api and "error" not in sandbox_api
+
+            if not api_valid:
+                test_result.is_invalid = True
+                test_result.error = f"未获取到沙箱报告 {input_id} 的原始数据，属于失效样本"
+            else:
+                biz_content = sandbox_api.get("biz_content", {})
+                api_risk = extractor.extract_risk_from_api(biz_content)
+                api_info = extractor.extract_sample_info_from_api(biz_content)
+                api_data = {"risk_level": api_risk, "sample_info": api_info}
+
+                # 1. 风险等级判定准确率（关键项）
+                try:
+                    risk_metric = SandboxRiskLevelCalculator().calculate(test_result.parsed_data, api_data)
+                    metrics["risk_level_accuracy"] = risk_metric.to_dict()
+                except Exception as e:
+                    metrics["risk_level_accuracy"] = {
+                        "metric_name": "risk_level_accuracy", "metric_cn": "风险等级判定准确率",
+                        "score": 0.0, "max_score": 100.0, "accuracy": 0.0,
+                        "ai_value": test_result.parsed_data.get("risk_level", "未获取到"),
+                        "api_value": api_risk, "is_passed": False, "detail": {"error": str(e)}
+                    }
+
+                # 2. 样本基本信息提取正确率
+                try:
+                    info_metric = SandboxInfoExtractionCalculator().calculate(test_result.parsed_data, api_data)
+                    metrics["sample_info_accuracy"] = info_metric.to_dict()
+                except Exception as e:
+                    metrics["sample_info_accuracy"] = {
+                        "metric_name": "sample_info_accuracy", "metric_cn": "样本基本信息提取正确率",
+                        "score": 0.0, "max_score": 100.0, "accuracy": 0.0,
+                        "ai_value": "", "api_value": "", "is_passed": False, "detail": {"error": str(e)}
+                    }
+
+                # 3. 处置建议合理性（LLM-as-a-Judge，需传入 raw_text 作为上下文）
+                try:
+                    ai_data_with_raw = {**test_result.parsed_data, "raw_text": test_result.raw_text}
+                    disposal_metric = SandboxDisposalCalculator().calculate(ai_data_with_raw, api_data)
+                    metrics["disposal_rationality"] = disposal_metric.to_dict()
+                except Exception as e:
+                    metrics["disposal_rationality"] = {
+                        "metric_name": "disposal_rationality", "metric_cn": "处置建议合理性",
+                        "score": 0.0, "max_score": 100.0, "accuracy": 0.0,
+                        "ai_value": "", "api_value": "", "is_passed": False, "detail": {"error": str(e)}
+                    }
+
+                # 4. 格式规范性
+                try:
+                    format_metric = SandboxFormatCalculator().calculate(test_result.parsed_data)
+                    metrics["format_compliance"] = format_metric.to_dict()
+                except Exception as e:
+                    metrics["format_compliance"] = {
+                        "metric_name": "format_compliance", "metric_cn": "格式规范性",
+                        "score": 0.0, "max_score": 100.0, "accuracy": 0.0,
+                        "ai_value": "", "api_value": "", "is_passed": False, "detail": {"error": str(e)}
+                    }
+
+                # 5. 章节完整性
+                try:
+                    completeness_metric = SandboxCompletenessCalculator().calculate(test_result.parsed_data)
+                    metrics["section_completeness"] = completeness_metric.to_dict()
+                except Exception as e:
+                    metrics["section_completeness"] = {
+                        "metric_name": "section_completeness", "metric_cn": "章节完整性",
+                        "score": 0.0, "max_score": 100.0, "accuracy": 0.0,
+                        "ai_value": "", "api_value": "", "is_passed": False, "detail": {"error": str(e)}
+                    }
 
         self._mark_extraction_failures(metrics, test_result.parsed_data)
         return metrics
@@ -1372,8 +1516,19 @@ class AIInterpretAgent:
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(report_data, f, ensure_ascii=False, indent=2)
 
+        # StandardResult 契约JSON：提取所有样本的标准化结果，供统一框架消费
+        standard_results = []
+        for module_results in self.results.values():
+            for r in module_results:
+                if r.standard_result:
+                    standard_results.append(r.standard_result.to_dict())
+        sr_path = os.path.join(output_dir, "standard_results.json")
+        with open(sr_path, 'w', encoding='utf-8') as f:
+            json.dump(standard_results, f, ensure_ascii=False, indent=2)
+
         print(f"\n{'='*60}")
         print(f"📄 综合测试报告已生成: {json_path}")
+        print(f"📄 标准结果契约: {sr_path}（{len(standard_results)}条 StandardResult）")
         
         # 生成 HTML 可视化报告
         html_generator = HTMLReportGenerator(output_dir)
@@ -1463,12 +1618,14 @@ class AIInterpretAgent:
                 {
                     module_config["id_field"]: r.input_id,
                     "case_id": r.case_id,
+                    "agent_id": r.agent_id,
                     "success": r.success,
                     "is_invalid": r.is_invalid,
                     "first_packet_time": r.first_packet_time,
                     "total_response_time": r.total_response_time,
                     "error": r.error,
-                    "metrics": r.metrics
+                    "metrics": r.metrics,
+                    "standard_result": r.standard_result.to_dict() if r.standard_result else None
                 }
                 for r in results
             ]

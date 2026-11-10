@@ -406,8 +406,8 @@ python3 run_ai_test_agent.py --mode all
 python3 run_batch_audit.py --module alarm --run-id 20250701_203000
 
 # 稳定性测试
-python3 run_stability_test.py --module alarm
-python3 run_stability_test.py --mode all
+python3 run_stability_test.py  alarm
+python3 run_stability_test.py  all
 ```
 
 ### 安装定时任务

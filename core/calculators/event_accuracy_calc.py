@@ -12,6 +12,7 @@ class EventAccuracyCalculator(BaseCalculator):
     METRIC_NAME = "event_accuracy"
     METRIC_CN = "关联事件准确率"
     MAX_SCORE = 5
+    DIMENSION = "accuracy"
 
     def calculate(self, ai_data: Dict[str, Any], api_data: Dict[str, Any]) -> MetricResult:
         """计算事件列表准确率

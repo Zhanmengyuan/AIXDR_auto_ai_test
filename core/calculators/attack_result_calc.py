@@ -68,6 +68,7 @@ class AttackResultCalculator(BaseCalculator):
     METRIC_NAME = "attack_result_accuracy"
     METRIC_CN = "攻击结果准确率"
     MAX_SCORE = 100.0
+    DIMENSION = "accuracy"
     EXPECTED_F1 = 0.95
     DEDUCTION_INTERVAL = 0.05
     DEDUCTION_AMOUNT = 5

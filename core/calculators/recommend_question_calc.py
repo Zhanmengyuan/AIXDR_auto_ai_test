@@ -20,6 +20,7 @@ class RecommendQuestionCalculator:
 
     METRIC_NAME = "recommend_question_quality"
     METRIC_CN = "推荐问题质量"
+    DIMENSION = "compliance"
 
     def __init__(self):
         # 加载 recommend_prompt 规范
@@ -58,6 +59,7 @@ class RecommendQuestionCalculator:
                 "metric_cn": self.METRIC_CN,
                 "accuracy": None,
                 "is_extraction_failure": True,
+                "dimension": self.DIMENSION,
                 "detail": {"reason": "未捕获到推荐问题"}
             }
 
@@ -158,6 +160,7 @@ overall_score = (compliance_score + relevance_score + diversity_score) / 3，保
                 "accuracy": overall,          # 三维度均值（0~1），用于记录趋势
                 "is_qualified": is_qualified,  # 合格/不合格（核心结论）
                 "is_passed": is_qualified,
+                "dimension": self.DIMENSION,
                 "detail": {
                     "questions": questions,
                     "compliance_score": compliance,
@@ -183,5 +186,6 @@ overall_score = (compliance_score + relevance_score + diversity_score) / 3，保
             "metric_cn": self.METRIC_CN,
             "accuracy": None,
             "is_extraction_failure": True,
+            "dimension": self.DIMENSION,
             "detail": {"reason": reason}
         }

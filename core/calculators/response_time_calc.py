@@ -3,12 +3,9 @@
 计算AI接口的首包响应时间和平均响应时间
 """
 import time
-import threading
-import queue
 import requests
 import urllib3
 from typing import Any, Dict, List, Tuple
-from datetime import datetime
 from .base_calculator import BaseCalculator, MetricResult
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -20,6 +17,7 @@ class ResponseTimeCalculator(BaseCalculator):
     METRIC_NAME = "response_time"
     METRIC_CN = "响应时间"
     MAX_SCORE = 5
+    DIMENSION = "performance"
 
     def __init__(self, config):
         super().__init__()
@@ -28,104 +26,65 @@ class ResponseTimeCalculator(BaseCalculator):
         self.headers = config.headers
 
     def measure_single_asset(self, asset_id: str) -> Tuple[float, float]:
-        """测量单个资产的响应时间（秒）
+        """测量单个资产的响应时间（秒，单次 chatRequest 调用）
 
         Returns:
             (首包时间, 总响应时间)
         """
+        import uuid
+
         chat_url = f"{self.base_url}/maxs/szr/chat/chat"
-        session_id = f"-1@{datetime.now().strftime('%Y%m%d%H%M%S')}-0000-000000000000"
-        timestamp_ms = int(time.time() * 1000)
-        random_str = "".join([chr(ord('a') + i % 26) for i in range(8)])
-        conversation_id = f"{session_id}@{timestamp_ms}-{random_str}"
+        session_id = f"-1@{uuid.uuid4()}"
 
         chat_payload = {
+            "newSession": True,
+            "userId": -1,
             "question": f"请为我调查这个资产,资产ID: {asset_id}",
-            "agent": "asset",
-            "bizId": asset_id,
-            "bizType": 4,
-            "fileId": [],
-            "network": False,
-            "recommend": False,
             "sessionId": session_id,
-            "conversationId": conversation_id,
-            "tag": "id"
+            "tag": "id",
+            "bizType": 4,
+            "bizId": asset_id,
+            "agent": "asset",
+            "network": False,
+            "fileId": [],
+            "recommend": False
         }
 
-        result_queue = queue.Queue()
         start_time = time.time()
-
-        def send_request():
-            try:
-                response = requests.post(
-                    chat_url,
-                    headers={**self.headers, "Content-Type": "application/json"},
-                    json=chat_payload,
-                    verify=False,
-                    timeout=120
-                )
-                result_queue.put(("request_sent", response.status_code))
-            except Exception as e:
-                result_queue.put(("error", str(e)))
-
-        def receive_response():
-            try:
-                connect_url = f"{self.base_url}/maxs/szr/chat/connect"
-                connect_params = {"sessionId": session_id}
-
-                first_packet_time = None
-                total_time = None
-
-                with requests.get(
-                    connect_url,
-                    params=connect_params,
-                    headers={**self.headers, "Accept": "text/event-stream"},
-                    stream=True,
-                    verify=False,
-                    timeout=120
-                ) as resp:
-                    for line in resp.iter_lines():
-                        elapsed = time.time() - start_time
-
-                        if first_packet_time is None and line:
-                            first_packet_time = elapsed
-
-                        if line:
-                            try:
-                                line_str = line.decode('utf-8')
-                                if line_str.startswith("data:") or line_str.startswith("data :"):
-                                    data_str = line_str.lstrip().replace("data:", "").replace("data :", "").strip()
-                                    if data_str == "[DONE]":
-                                        total_time = elapsed
-                                        result_queue.put(("done", first_packet_time, total_time))
-                                        return
-                            except:
-                                pass
-
-                if total_time is None:
-                    result_queue.put(("done", first_packet_time, time.time() - start_time))
-
-            except Exception as e:
-                result_queue.put(("error", str(e)))
-
-        send_thread = threading.Thread(target=send_request)
-        recv_thread = threading.Thread(target=receive_response)
-
-        send_thread.start()
-        recv_thread.start()
-
-        send_thread.join(timeout=180)
-        recv_thread.join(timeout=180)
-
         first_packet_time = None
         total_time = None
 
-        while not result_queue.empty():
-            event_type, *event_data = result_queue.get()
-            if event_type == "done":
-                first_packet_time = event_data[0] if event_data[0] else 0
-                total_time = event_data[1] if len(event_data) > 1 else 0
-                break
+        try:
+            resp = requests.post(
+                chat_url,
+                headers={**self.headers, "Accept": "text/event-stream", "Content-Type": "application/json"},
+                json=chat_payload,
+                stream=True,
+                verify=False,
+                timeout=120
+            )
+
+            for line in resp.iter_lines():
+                elapsed = time.time() - start_time
+
+                if first_packet_time is None and line:
+                    first_packet_time = elapsed
+
+                if line:
+                    try:
+                        line_str = line.decode('utf-8')
+                        if line_str.startswith("data:") or line_str.startswith("data :"):
+                            data_str = line_str.lstrip().replace("data:", "").replace("data :", "").strip()
+                            if data_str == "[DONE]":
+                                total_time = elapsed
+                                break
+                    except:
+                        pass
+        except:
+            pass
+
+        if total_time is None:
+            total_time = time.time() - start_time
 
         return first_packet_time or 0, total_time or 0
 

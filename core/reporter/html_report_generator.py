@@ -627,7 +627,8 @@ class HTMLReportGenerator:
             "asset": "资产解读",
             "vuln": "漏洞解读",
             "alarm": "安全告警解读",
-            "event": "安全事件解读"
+            "event": "安全事件解读",
+            "sandbox": "沙箱报告解读"
         }
 
         module_metric_labels = {
@@ -651,6 +652,13 @@ class HTMLReportGenerator:
             },
             "vuln": {
                 "dynamic_structure_completeness": "动态结构完整率",
+            },
+            "sandbox": {
+                "risk_level_accuracy": "风险评估等级判定准确性",
+                "sample_info_accuracy": "样本信息提取正确率",
+                "disposal_rationality": "处置建议合理性",
+                "format_compliance": "格式规范性",
+                "section_completeness": "章节完整性",
             }
         }
 
@@ -912,14 +920,15 @@ class HTMLReportGenerator:
             "asset": "asset_id",
             "vuln": "vuln_id",
             "alarm": "alarm_id",
-            "event": "event_id"
+            "event": "event_id",
+            "sandbox": "sandbox_id"
         }
         id_field = id_field_map.get(module_key, "")
         biz_id = test_case.get(id_field, test_case.get('input_data', {}).get(id_field, ""))
 
-        # 构建显示标题：业务ID为主
+        # 构建显示标题：业务ID为主；用序号（对应 config 顺序）标注
         if biz_id:
-            case_title = f"{id_field}: {biz_id}"
+            case_title = f"样本 #{idx + 1:02d} | {id_field}: {biz_id}"
         else:
             case_title = case_id
 
@@ -981,6 +990,18 @@ class HTMLReportGenerator:
             "dynamic_structure_completeness": "动态章节完整率",
             "recommend_question_quality": "推荐问题质量"
         }
+
+        # 沙箱模块使用独立的指标名称
+        if module_key == "sandbox":
+            base_metric_names = {
+                "first_packet_time": "首包响应时间",
+                "total_response_time": "总包处理时长",
+                "risk_level_accuracy": "风险评估等级判定准确性",
+                "sample_info_accuracy": "样本信息提取正确率",
+                "disposal_rationality": "处置建议合理性",
+                "format_compliance": "格式规范性",
+                "section_completeness": "章节完整性",
+            }
         
         # 根据模块类型设置结构完整率的显示名称
         if module_key in ["alarm", "event"]:

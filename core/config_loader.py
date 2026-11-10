@@ -90,6 +90,21 @@ class ConfigLoader:
         })
 
     @property
+    def database_config(self) -> Dict[str, Any]:
+        """沙箱报告数据库配置（PostgreSQL）"""
+        return self._config.get('database', {
+            "type": "postgresql",
+            "host": "192.168.113.169",
+            "port": 15432,
+            "user": "root",
+            "password": "maxs.PDG~2022",
+            "dbname": "ssa",
+            "table": "xdr_ddan_result",
+            "id_column": "id",
+            "search_column": "ext_field_one",
+        })
+
+    @property
     def test_assets(self) -> List[str]:
         return self._config.get('test_assets', [])
 
@@ -106,6 +121,10 @@ class ConfigLoader:
         return self._config.get('test_vulns', [])
 
     @property
+    def test_sandboxes(self) -> List[str]:
+        return self._config.get('test_sandboxes', [])
+
+    @property
     def stability_test_alarms(self) -> List[str]:
         """稳定性测试专用告警ID列表"""
         return self._config.get('stability_test_alarms', [])
@@ -119,6 +138,11 @@ class ConfigLoader:
     def stability_test_vulns(self) -> List[str]:
         """稳定性测试专用漏洞ID列表"""
         return self._config.get('stability_test_vulns', [])
+
+    @property
+    def stability_test_sandboxes(self) -> List[str]:
+        """稳定性测试专用沙箱ID列表"""
+        return self._config.get('stability_test_sandboxes', [])
 
     @property
     def field_mapping(self) -> Dict[str, List[str]]:

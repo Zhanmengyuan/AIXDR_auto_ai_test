@@ -15,6 +15,13 @@ from .threat_determination_calc import ThreatDeterminationCalculator
 from .structure_completeness_calc import StructureCompletenessCalculator
 from .attack_result_calc import AttackResultCalculator
 from .dynamic_structure_completeness_calc import DynamicStructureCompletenessCalculator
+from .sandbox_calculators import (
+    SandboxRiskLevelCalculator,
+    SandboxInfoExtractionCalculator,
+    SandboxDisposalCalculator,
+    SandboxFormatCalculator,
+    SandboxCompletenessCalculator,
+)
 
 __all__ = [
     "BaseCalculator",
@@ -30,5 +37,10 @@ __all__ = [
     "ThreatDeterminationCalculator",
     "StructureCompletenessCalculator",
     "AttackResultCalculator",
-    "DynamicStructureCompletenessCalculator"
+    "DynamicStructureCompletenessCalculator",
+    "SandboxRiskLevelCalculator",
+    "SandboxInfoExtractionCalculator",
+    "SandboxDisposalCalculator",
+    "SandboxFormatCalculator",
+    "SandboxCompletenessCalculator",
 ]

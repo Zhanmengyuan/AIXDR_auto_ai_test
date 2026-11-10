@@ -130,25 +130,26 @@ class AlarmAPIClient(BaseAPIClient):
         """
         endpoint = self.config.alarm_endpoint
 
-        now = datetime.now()
-        end_date = now.strftime("%Y-%m-%d %H:%M:%S")
-        start_date = (now - timedelta(days=90)).strftime("%Y-%m-%d %H:%M:%S")
-
         payload = {
             "selectAllFlag": True,
             "orgIds": ["1"],
-            "startTime": start_date,
-            "endTime": end_date,
+            "startTime": "2026-06-01 00:00:00",
+            "endTime": "2026-11-30 00:00:00",
             "advanced": 0,
+            "whitelistAlarm": 0,
             "conditionUnitList": [
+                {
+                    "key": "ALERT_RESULT_FLAG",
+                    "operator": "notEquals",
+                    "value": ["误报"]
+                },
                 {
                     "key": "SNOW_ID",
                     "operator": "equals",
                     "value": [alarm_id]
                 }
             ],
-            "exact": "1",
-            "assetPortraitFlag": True,
+            "exact": "0",
             "pageIndex": 1,
             "pageSize": 10,
             "order": "desc",
@@ -265,17 +266,27 @@ class AlarmAPIClient(BaseAPIClient):
         from datetime import datetime, timedelta
 
         endpoint = self.config.alarm_endpoint
-        now = datetime.now()
-        end_time = now.strftime("%Y-%m-%d %H:%M:%S")
-        start_time = (now - timedelta(days=90)).strftime("%Y-%m-%d %H:%M:%S")
 
         payload = {
             "selectAllFlag": True,
             "orgIds": ["1"],
-            "startTime": start_time,
-            "endTime": end_time,
-            "advanced": 1,
-            "conditionGroup": f'告警ID = "{alarm_id}"',
+            "startTime": "2026-06-01 00:00:00",
+            "endTime": "2026-11-30 00:00:00",
+            "advanced": 0,
+            "whitelistAlarm": 0,
+            "conditionUnitList": [
+                {
+                    "key": "ALERT_RESULT_FLAG",
+                    "operator": "notEquals",
+                    "value": ["误报"]
+                },
+                {
+                    "key": "SNOW_ID",
+                    "operator": "equals",
+                    "value": [alarm_id]
+                }
+            ],
+            "exact": "0",
             "pageIndex": 1,
             "pageSize": 10,
             "order": "desc",

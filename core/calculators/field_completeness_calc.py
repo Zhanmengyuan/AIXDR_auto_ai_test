@@ -12,6 +12,7 @@ class FieldCompletenessCalculator(BaseCalculator):
     METRIC_NAME = "field_completeness"
     METRIC_CN = "资产关键字段完整率"
     MAX_SCORE = 10
+    DIMENSION = "accuracy"
 
     # 资产关键字段（10个）
     KEY_FIELDS = [

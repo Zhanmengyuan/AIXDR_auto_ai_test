@@ -30,13 +30,17 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
     all_fp_times = []
     all_tr_times = []
     if agent and hasattr(agent, 'results') and agent.results:
-        module_names_cn = {'asset': '资产解读', 'alarm': '告警解读', 'event': '事件解读', 'vuln': '漏洞解读'}
+        module_names_cn = {'asset': '资产解读', 'alarm': '告警解读', 'event': '事件解读', 'vuln': '漏洞解读', 'sandbox': '沙箱解读'}
         metric_labels = {
             'chapter_structure_completeness': '结构完整率',
             'risk_level_accuracy': '风险等级',
             'threat_determination_accuracy': '威胁定性',
             'attack_result_accuracy': '攻击结果',
             'dynamic_structure_completeness': '动态结构',
+            'sample_info_accuracy': '样本信息提取',
+            'disposal_rationality': '处置建议合理性',
+            'format_compliance': '格式规范性',
+            'section_completeness': '章节完整性',
         }
         for mod_key in modules:
             mod_results = agent.results.get(mod_key)
@@ -96,6 +100,8 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
     all_results = {}
     audit_lines = []
     for report_type in modules:
+        if report_type == 'sandbox':
+            continue
         result = mgr.batch_audit(report_type, date_str=run_date)
         all_results[report_type] = result
         s = result['summary']
@@ -272,7 +278,7 @@ def main():
     )
     parser.add_argument(
         "--module",
-        choices=["asset", "vuln", "alarm", "event"],
+        choices=["asset", "vuln", "alarm", "event", "sandbox"],
         help="指定模块测试（优先级高于--mode）"
     )
 
@@ -350,6 +356,40 @@ def main():
 
                 print(f"\n准备执行 {len(test_cases)} 个事件解读测试用例...")
                 results = agent.run_module_tests("event", test_cases)
+
+                if results:
+                    print(f"\n{'='*60}")
+                    print(f"📄 生成综合测试报告...")
+                    print(f"{'='*60}")
+                    agent._generate_comprehensive_report()
+        elif args.module == "sandbox":
+            print("\n" + "="*60)
+            print("运行沙箱报告解读模块测试")
+            print("="*60)
+
+            agent = AIInterpretAgent()
+            from core.config_loader import ConfigLoader
+            config = ConfigLoader()
+            sandbox_ids = config.test_sandboxes if hasattr(config, 'test_sandboxes') else []
+
+            if not sandbox_ids:
+                print("⚠️ 配置文件中没有配置测试沙箱样本 ID")
+            else:
+                from agents.test_case_manager import TestCase
+                test_cases = []
+                for idx, sandbox_id in enumerate(sandbox_ids):
+                    test_case = TestCase(
+                        case_id=f"sandbox_test_{idx+1:02d}",
+                        module="sandbox",
+                        input_data={"sandbox_id": sandbox_id},
+                        expected_output={},
+                        description=f"沙箱解读测试 - {sandbox_id}",
+                        tags=["automated", "sandbox"]
+                    )
+                    test_cases.append(test_case)
+
+                print(f"\n准备执行 {len(test_cases)} 个沙箱解读测试用例...")
+                results = agent.run_module_tests("sandbox", test_cases)
 
                 if results:
                     print(f"\n{'='*60}")

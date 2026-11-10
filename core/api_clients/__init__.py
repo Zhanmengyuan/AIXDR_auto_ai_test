@@ -7,6 +7,7 @@ from .asset_client import AssetAPIClient
 from .vuln_client import VulnAPIClient
 from .alarm_client import AlarmAPIClient
 from .event_client import EventAPIClient
+from .sandbox_client import SandboxAPIClient
 from .auth_client import AuthClient
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "VulnAPIClient",
     "AlarmAPIClient",
     "EventAPIClient",
+    "SandboxAPIClient",
     "AuthClient"
 ]

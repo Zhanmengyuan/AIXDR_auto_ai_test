@@ -62,7 +62,11 @@ class LLMClient:
                 if response.status_code == 200:
                     result = response.json()
                     if result.get('choices'):
-                        return result['choices'][0]['message']['content']
+                        content = result['choices'][0]['message'].get('content') or ""
+                        if content.strip():
+                            return content
+                        print(f"  [错误] LLM响应无内容: {result}")
+                        return None
                     else:
                         print(f"  [错误] LLM响应无内容: {result}")
                         return None
