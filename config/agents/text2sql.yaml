@@ -1,0 +1,40 @@
+# text2sql 智能体声明
+agent:
+  id: text2sql
+  name: text2sql
+  category: query            # 查询类，权重：准确性80%·可靠性10%·内容质量10%（性能不算分）
+                              # 注：无content_quality维度，综合分分母排除content_quality权重
+
+metrics:
+  # ── 准确性维度（结果准确率）──
+  - key: result_accuracy
+    name_cn: 结果准确率
+    dimension: accuracy
+    type: higher_better
+    thresholds: {best: 1.0, worst: 0.0}
+    required_fields: [accuracy]
+    sub_weight: 100
+    is_guardrail: true
+    regression_threshold: 0.03
+
+  # ── 可靠性维度 ──
+  - key: execution_success_rate
+    name_cn: 执行成功率
+    dimension: reliability
+    type: pass_fail
+    thresholds: {}
+    required_fields: [accuracy]
+    sub_weight: 100
+    is_guardrail: false
+    regression_threshold: 0.02
+
+  # ── 性能维度（只展示不算分）──
+  - key: avg_response_time
+    name_cn: 平均耗时
+    dimension: performance
+    type: display_only
+    thresholds: {}
+    required_fields: [value]
+    sub_weight: 100
+    is_guardrail: false
+    regression_threshold: 0.20

@@ -380,17 +380,11 @@ class HTMLReportGenerator:
         os.makedirs(self.html_reports_dir, exist_ok=True)
 
     def generate(self, report_data: Dict[str, Any]) -> List[str]:
-        """按模块生成 HTML 报告，返回所有生成的文件路径"""
+        """生成综合 HTML 报告，只生成一个总的报告，返回生成的文件路径"""
         generated_paths = []
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        module_names = {
-            "asset": "资产解读",
-            "vuln": "漏洞解读",
-            "alarm": "安全告警解读",
-            "event": "安全事件解读"
-        }
 
-        # 1. 生成综合报告
+        # 只生成综合报告（一个文件）
         comprehensive_dir = os.path.join(self.html_reports_dir, "comprehensive")
         os.makedirs(comprehensive_dir, exist_ok=True)
 
@@ -399,31 +393,8 @@ class HTMLReportGenerator:
         comp_path = os.path.join(comprehensive_dir, comp_filename)
         with open(comp_path, 'w', encoding='utf-8') as f:
             f.write(html)
-        comp_latest = os.path.join(comprehensive_dir, "test_report_comprehensive.html")
-        with open(comp_latest, 'w', encoding='utf-8') as f:
-            f.write(html)
         print(f"📄 综合 HTML 报告: {comp_path}")
         generated_paths.append(comp_path)
-
-        # 2. 按模块生成独立的 HTML 报告
-        modules = report_data.get('modules', {})
-        for module_key, module_data in modules.items():
-            module_name = module_names.get(module_key, module_key)
-            module_dir = os.path.join(self.html_reports_dir, module_key)
-            os.makedirs(module_dir, exist_ok=True)
-
-            module_html = self._build_module_page(report_data, module_key, module_name, timestamp)
-            mod_filename = f"test_report_{module_key}_{timestamp}.html"
-            mod_path = os.path.join(module_dir, mod_filename)
-            with open(mod_path, 'w', encoding='utf-8') as f:
-                f.write(module_html)
-            mod_latest = os.path.join(module_dir, f"test_report_{module_key}.html")
-            with open(mod_latest, 'w', encoding='utf-8') as f:
-                f.write(module_html)
-            print(f"📄 {module_name} HTML 报告: {mod_path}")
-            generated_paths.append(mod_path)
-
-        print(f"📄 全部 HTML 报告存放于: {self.html_reports_dir}")
 
         return generated_paths
 
@@ -641,13 +612,11 @@ class HTMLReportGenerator:
                 "attack_result_accuracy": "攻击结果准确率",
                 "chapter_structure_completeness": "6章结构完整率",
                 "core_conclusion_stability": "核心结论稳定性",
-                "recommend_question_quality": "推荐问题质量",
             },
             "event": {
                 "threat_determination_accuracy": "威胁定性准确率",
                 "attack_result_accuracy": "攻击结果准确率",
                 "chapter_structure_completeness": "6章结构完整率",
-                "recommend_question_quality": "推荐问题质量",
                 "core_conclusion_stability": "核心结论稳定性",
             },
             "vuln": {
@@ -674,29 +643,6 @@ class HTMLReportGenerator:
 
             rows = []
             for metric_key, label in labels.items():
-                # 推荐问题质量：从 test_cases 里统计合格率，不走 avg_accuracies
-                if metric_key == "recommend_question_quality":
-                    test_cases = module_data.get("test_cases", [])
-                    rq_list = [
-                        tc["metrics"]["recommend_question_quality"]
-                        for tc in test_cases
-                        if tc.get("success") and not tc.get("is_invalid")
-                        and tc.get("metrics") and "recommend_question_quality" in tc["metrics"]
-                        and tc["metrics"]["recommend_question_quality"].get("accuracy") is not None
-                    ]
-                    if rq_list:
-                        qualified = sum(1 for rq in rq_list if rq.get("is_qualified"))
-                        total = len(rq_list)
-                        color = "#38a169" if qualified == total else "#e53e3e"
-                        display = f'<span style="color:{color};font-weight:bold;">合格{qualified}/{total}</span>'
-                        rows.append(f"""
-                        <tr>
-                            <td style="padding:10px;border:1px solid #e2e8f0;">{label}</td>
-                            <td style="padding:10px;border:1px solid #e2e8f0;text-align:center;">{display}</td>
-                            <td style="padding:10px;border:1px solid #e2e8f0;text-align:center;color:#666;font-size:12px;">{total}</td>
-                        </tr>""")
-                    continue
-
                 avg_val = avg_accuracies.get(metric_key)
                 if avg_val is not None:
                     avg_accuracy = float(avg_val.get("avg_accuracy", 0.0))
@@ -749,18 +695,8 @@ class HTMLReportGenerator:
         """构建单个模块的指标平均值统计"""
         multi_sample_stats = module_data.get("multi_sample_stats", {})
         avg_accuracies = multi_sample_stats.get("avg_accuracies", {})
-        test_cases = module_data.get("test_cases", [])
 
-        # 检查是否有推荐问题数据
-        rq_list = [
-            tc["metrics"]["recommend_question_quality"]
-            for tc in test_cases
-            if tc.get("success") and not tc.get("is_invalid")
-            and tc.get("metrics") and "recommend_question_quality" in tc["metrics"]
-            and tc["metrics"]["recommend_question_quality"].get("accuracy") is not None
-        ]
-
-        if not avg_accuracies and not rq_list:
+        if not avg_accuracies:
             return ""
 
         module_metric_labels = {
@@ -787,18 +723,6 @@ class HTMLReportGenerator:
                     <td style="padding:10px;border:1px solid #e2e8f0;">{label}</td>
                     <td style="padding:10px;border:1px solid #e2e8f0;text-align:center;color:#667eea;font-weight:bold;">{display}</td>
                     <td style="padding:10px;border:1px solid #e2e8f0;text-align:center;color:#666;font-size:12px;">{sample_info}</td>
-                </tr>""")
-
-        # 推荐问题合格率行
-        if rq_list:
-            qualified = sum(1 for rq in rq_list if rq.get("is_qualified"))
-            total = len(rq_list)
-            color = "#38a169" if qualified == total else "#e53e3e"
-            rows.append(f"""
-                <tr>
-                    <td style="padding:10px;border:1px solid #e2e8f0;">推荐问题质量</td>
-                    <td style="padding:10px;border:1px solid #e2e8f0;text-align:center;font-weight:bold;color:{color};">合格{qualified}/{total}</td>
-                    <td style="padding:10px;border:1px solid #e2e8f0;text-align:center;color:#666;font-size:12px;">{total}</td>
                 </tr>""")
 
         if not rows:
@@ -895,11 +819,10 @@ class HTMLReportGenerator:
         else:
             # 检查所有指标是否都通过（排除时间指标和不可审查指标）
             TIME_METRICS = {"first_packet_time", "total_response_time"}
-            EXCLUDE_METRICS = {"recommend_question_quality"}
             metrics = test_case.get('metrics', {})
             any_failed = False
             for mkey, mval in metrics.items():
-                if mkey in TIME_METRICS or mkey in EXCLUDE_METRICS:
+                if mkey in TIME_METRICS:
                     continue
                 if isinstance(mval, dict) and mval.get('is_extraction_failure'):
                     continue
@@ -988,7 +911,6 @@ class HTMLReportGenerator:
             "attack_result_accuracy": "攻击结果准确率",
             "risk_level_accuracy": "资产风险等级准确率",
             "dynamic_structure_completeness": "动态章节完整率",
-            "recommend_question_quality": "推荐问题质量"
         }
 
         # 沙箱模块使用独立的指标名称
@@ -1014,97 +936,11 @@ class HTMLReportGenerator:
             base_metric_names["chapter_structure_completeness"] = "结构完整率"
         
         html_parts = []
-        
+
         for metric_key, metric_data in metrics.items():
-            if metric_key == "recommend_question_quality":
-                html_parts.append(self._build_recommend_question_metric(metric_data))
-            else:
-                html_parts.append(self._build_single_metric(metric_key, metric_data, base_metric_names.get(metric_key, metric_key)))
-        
+            html_parts.append(self._build_single_metric(metric_key, metric_data, base_metric_names.get(metric_key, metric_key)))
+
         return f'<div class="metrics-grid">{"".join(html_parts)}</div>'
-
-    def _build_recommend_question_metric(self, metric_data: Dict[str, Any]) -> str:
-        """构建推荐问题质量指标卡片（展示三维度得分）"""
-        if metric_data.get("is_extraction_failure"):
-            reason = metric_data.get("detail", {}).get("reason", "未捕获到推荐问题")
-            return f'''
-            <div class="metric-card" style="grid-column: 1/-1;">
-                <div class="metric-header fail" style="background:#fefcbf;">
-                    <span class="metric-name">推荐问题质量</span>
-                    <span class="metric-score" style="color:#975a16;">未评估</span>
-                </div>
-                <div class="metric-content">
-                    <div class="detail-row"><span class="detail-label">原因</span><span class="detail-value">{reason}</span></div>
-                </div>
-            </div>'''
-
-        overall = metric_data.get("accuracy", 0)
-        is_qualified = metric_data.get("is_qualified", False)
-        detail = metric_data.get("detail", {})
-        questions = detail.get("questions", [])
-        compliance = detail.get("compliance_score", 0)
-        compliance_ok = detail.get("compliance_passed", compliance >= 0.8)
-        relevance = detail.get("relevance_score", 0)
-        relevance_ok = detail.get("relevance_passed", relevance >= 0.8)
-        diversity = detail.get("diversity_score", 0)
-        diversity_ok = detail.get("diversity_passed", diversity >= 0.8)
-        fail_reasons = detail.get("fail_reasons", [])
-        compliance_detail = detail.get("compliance_detail", "")
-        relevance_detail = detail.get("relevance_detail", "")
-        diversity_detail = detail.get("diversity_detail", "")
-        reviews = detail.get("questions_review", [])
-
-        header_class = "pass" if is_qualified else "fail"
-        status_text = "✅ 合格" if is_qualified else "❌ 不合格"
-
-        def dim_badge(ok): return '✅' if ok else '❌'
-        def dim_color(ok): return '#38a169' if ok else '#e53e3e'
-
-        q_parts = []
-        for i, q in enumerate(questions):
-            review_part = f"　<span style='color:#999;'>{reviews[i]}</span>" if i < len(reviews) else ""
-            q_parts.append(f'<div style="margin:4px 0;font-size:12px;color:#4a5568;">Q{i+1}: {q}{review_part}</div>')
-        questions_html = "".join(q_parts)
-
-        fail_html = ""
-        if fail_reasons:
-            fail_html = f'<div style="margin-top:10px;padding:8px;background:#fff5f5;border-left:3px solid #e53e3e;border-radius:4px;font-size:12px;color:#742a2a;">' + \
-                        "".join(f"<div>• {r}</div>" for r in fail_reasons) + "</div>"
-
-        return f'''
-        <div class="metric-card" style="grid-column: 1/-1;">
-            <div class="metric-header {header_class}">
-                <span class="metric-name">💡 推荐问题质量</span>
-                <span class="metric-score">{status_text}（三维度全部≥0.8才合格）</span>
-            </div>
-            <div class="metric-content">
-                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
-                    <div style="text-align:center;background:#f7fafc;padding:10px;border-radius:6px;border:2px solid {dim_color(compliance_ok)}20;">
-                        <div style="font-size:22px;">{dim_badge(compliance_ok)}</div>
-                        <div style="font-size:16px;font-weight:bold;color:{dim_color(compliance_ok)};">{compliance:.2f}</div>
-                        <div style="font-size:11px;color:#666;margin-top:2px;">规范符合度</div>
-                        <div style="font-size:10px;color:#999;margin-top:4px;">{compliance_detail[:50] + "..." if len(compliance_detail)>50 else compliance_detail}</div>
-                    </div>
-                    <div style="text-align:center;background:#f7fafc;padding:10px;border-radius:6px;border:2px solid {dim_color(relevance_ok)}20;">
-                        <div style="font-size:22px;">{dim_badge(relevance_ok)}</div>
-                        <div style="font-size:16px;font-weight:bold;color:{dim_color(relevance_ok)};">{relevance:.2f}</div>
-                        <div style="font-size:11px;color:#666;margin-top:2px;">报告关联性</div>
-                        <div style="font-size:10px;color:#999;margin-top:4px;">{relevance_detail[:50] + "..." if len(relevance_detail)>50 else relevance_detail}</div>
-                    </div>
-                    <div style="text-align:center;background:#f7fafc;padding:10px;border-radius:6px;border:2px solid {dim_color(diversity_ok)}20;">
-                        <div style="font-size:22px;">{dim_badge(diversity_ok)}</div>
-                        <div style="font-size:16px;font-weight:bold;color:{dim_color(diversity_ok)};">{diversity:.2f}</div>
-                        <div style="font-size:11px;color:#666;margin-top:2px;">问题多样性</div>
-                        <div style="font-size:10px;color:#999;margin-top:4px;">{diversity_detail[:50] + "..." if len(diversity_detail)>50 else diversity_detail}</div>
-                    </div>
-                </div>
-                {fail_html}
-                <div style="background:#f7fafc;padding:10px;border-radius:6px;margin-top:10px;">
-                    <div style="font-size:12px;font-weight:600;color:#4a5568;margin-bottom:6px;">推荐问题（共{len(questions)}个）：</div>
-                    {questions_html}
-                </div>
-            </div>
-        </div>'''
 
     def _build_single_metric(self, metric_key: str, metric_data: Dict[str, Any], metric_name: str) -> str:
         """构建单个指标卡片"""

@@ -1,0 +1,50 @@
+# WAF降噪 智能体声明
+agent:
+  id: waf_dedup
+  name: WAF降噪
+  category: detect          # 检测研判类，权重：准确性90%·可靠性5%·内容质量5%（性能不算分）
+
+metrics:
+  # ── 准确性维度（框架从黑白样本数量计算F1）──
+  - key: f1_score
+    name_cn: F1
+    dimension: accuracy
+    type: f1
+    thresholds: {best: 1.0, worst: 0.0}
+    required_fields: [black_samples, black_correct, white_samples, white_correct]
+    sub_weight: 100
+    is_guardrail: true
+    regression_threshold: 0.05
+
+  # ── 可靠性维度 ──
+  - key: stability_rate
+    name_cn: 稳定性成功率
+    dimension: reliability
+    type: pass_fail
+    thresholds: {}
+    required_fields: [accuracy]
+    sub_weight: 100
+    is_guardrail: false
+    regression_threshold: 0.10
+
+  # ── 内容质量维度 ──
+  - key: content_correctness
+    name_cn: 整体内容正确性
+    dimension: content_quality
+    type: higher_better
+    thresholds: {best: 1.0, worst: 0.0}
+    required_fields: [accuracy]
+    sub_weight: 100
+    is_guardrail: false
+    regression_threshold: 0.05
+
+  # ── 性能维度（只展示不算分）──
+  - key: avg_response_time
+    name_cn: 平均响应时间
+    dimension: performance
+    type: display_only
+    thresholds: {}
+    required_fields: [value]
+    sub_weight: 100
+    is_guardrail: false
+    regression_threshold: 0.20

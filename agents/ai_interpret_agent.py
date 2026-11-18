@@ -895,16 +895,6 @@ class AIInterpretAgent:
                         "detail": {"error": str(e)}
                     }
 
-            # 3. 推荐问题质量评估（有推荐问题时才评估）
-            if test_result.recommend_questions:
-                from core.calculators.recommend_question_calc import RecommendQuestionCalculator
-                rq_metric = RecommendQuestionCalculator().calculate(
-                    questions=test_result.recommend_questions,
-                    raw_report=test_result.raw_text,
-                    module="alarm"
-                )
-                metrics["recommend_question_quality"] = rq_metric
-
         # ========== 安全事件解读模块 ==========
         elif module == "event":
             from core.calculators import StructureCompletenessCalculator, ThreatDeterminationCalculator, AttackResultCalculator
@@ -957,16 +947,6 @@ class AIInterpretAgent:
                         "is_passed": False,
                         "detail": {"error": str(e)}
                     }
-
-            # 3. 推荐问题质量评估（有推荐问题时才评估）
-            if test_result.recommend_questions:
-                from core.calculators.recommend_question_calc import RecommendQuestionCalculator
-                rq_metric = RecommendQuestionCalculator().calculate(
-                    questions=test_result.recommend_questions,
-                    raw_report=test_result.raw_text,
-                    module="event"
-                )
-                metrics["recommend_question_quality"] = rq_metric
 
         # ========== 沙箱报告解读模块 ==========
         elif module == "sandbox":
@@ -1370,24 +1350,6 @@ class AIInterpretAgent:
                         excl = f"（排除{metric['excluded_count']}个提取失败）" if metric.get('excluded_count') else ""
                         print(f"     - {metric['metric_cn']}: {metric['avg_accuracy']:.1%}{excl}")
 
-                # 推荐问题质量：单独展示各样本平均（不混入指标均值）
-                valid_results_for_rq = [r for r in results if r.success and r.metrics and not r.is_invalid]
-                rq_scores = [
-                    r.metrics["recommend_question_quality"]["accuracy"]
-                    for r in valid_results_for_rq
-                    if "recommend_question_quality" in r.metrics
-                    and r.metrics["recommend_question_quality"].get("accuracy") is not None
-                ]
-                if rq_scores:
-                    avg_rq = sum(rq_scores) / len(rq_scores)
-                    # 统计合格数（三维度全部≥0.8）
-                    qualified_count = sum(
-                        1 for r in valid_results_for_rq
-                        if r.metrics and "recommend_question_quality" in r.metrics
-                        and r.metrics["recommend_question_quality"].get("is_qualified")
-                    )
-                    print(f"     - 推荐问题质量: 合格{qualified_count}/{len(rq_scores)}个（均值{avg_rq:.2f}，0~1）")
-
                 print(f"   {'-'*50}")
 
     def _calculate_multi_sample_stats(self, module: str, results: List[TestResult]) -> Dict[str, Any]:
@@ -1409,15 +1371,11 @@ class AIInterpretAgent:
         if total_times:
             stats["avg_total_response_time"] = sum(total_times) / len(total_times)
 
-        # ========== 2. 所有准确率指标：加权准确率（排除提取失败和推荐问题质量）==========
-        # 推荐问题质量是 LLM 主观评分，不参与多样本均值统计，单独在测试用例详情展示
-        EXCLUDE_FROM_AVG = {"recommend_question_quality"}
+        # ========== 2. 所有准确率指标：加权准确率（排除提取失败）==========
 
         metric_aggregates = {}
         for r in valid_results:
             for key, metric_value in r.metrics.items():
-                if key in EXCLUDE_FROM_AVG:
-                    continue
                 if "accuracy" not in metric_value:
                     continue
                 if metric_value.get("is_extraction_failure"):
