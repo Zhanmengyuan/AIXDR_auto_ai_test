@@ -14,6 +14,7 @@ class RiskLevelCalculator(BaseCalculator):
     METRIC_NAME = "risk_level_accuracy"
     METRIC_CN = "风险等级准确率"
     MAX_SCORE = 20
+    DIMENSION = "accuracy"
     EXPECTED_F1 = 0.95
     DEDUCTION_INTERVAL = 0.05
     DEDUCTION_AMOUNT = 5

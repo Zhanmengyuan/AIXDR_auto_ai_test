@@ -10,13 +10,16 @@ sys.path.insert(0, os.path.dirname(__file__))
 from agents import AIInterpretAgent, TestCaseManager
 
 
-def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, agent=None):
+def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, agent=None,
+                                    model: str = "190", server: str = "http://localhost:8080"):
     """解读完成后自动触发批量审查，完成后发飞书通知（含解读指标+审查结果）
 
     Args:
         modules: 本次解读的模块列表
         run_date: 本次解读的时间戳目录
         agent: AIInterpretAgent实例，用于提取解读指标
+        model: 大模型型号名（生成v3 JSON用）
+        server: 服务地址（打印curl上传命令用）
     """
     import time
     start_time = time.time()
@@ -30,13 +33,17 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
     all_fp_times = []
     all_tr_times = []
     if agent and hasattr(agent, 'results') and agent.results:
-        module_names_cn = {'asset': '资产解读', 'alarm': '告警解读', 'event': '事件解读', 'vuln': '漏洞解读'}
+        module_names_cn = {'asset': '资产解读', 'alarm': '告警解读', 'event': '事件解读', 'vuln': '漏洞解读', 'sandbox': '沙箱解读'}
         metric_labels = {
             'chapter_structure_completeness': '结构完整率',
             'risk_level_accuracy': '风险等级',
             'threat_determination_accuracy': '威胁定性',
             'attack_result_accuracy': '攻击结果',
             'dynamic_structure_completeness': '动态结构',
+            'sample_info_accuracy': '样本信息提取',
+            'disposal_rationality': '处置建议合理性',
+            'format_compliance': '格式规范性',
+            'section_completeness': '章节完整性',
         }
         for mod_key in modules:
             mod_results = agent.results.get(mod_key)
@@ -66,25 +73,9 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
                     acc_parts.append(f"{label}{mv['avg_accuracy']:.1%}")
                 acc_str = ' '.join(acc_parts)
 
-            # 推荐问题合格率（alarm/event 模块）
-            rq_str = ""
-            if mod_key in ('alarm', 'event'):
-                rq_list = [
-                    r.metrics["recommend_question_quality"]
-                    for r in mod_results
-                    if r.success and not r.is_invalid
-                    and r.metrics and "recommend_question_quality" in r.metrics
-                    and r.metrics["recommend_question_quality"].get("accuracy") is not None
-                ]
-                if rq_list:
-                    qualified = sum(1 for rq in rq_list if rq.get("is_qualified"))
-                    rq_str = f" | 推荐问题合格{qualified}/{len(rq_list)}"
-
             line = f"  {name}: 有效{valid} 失败{failed} 失效{invalid} | 首包{avg_fp:.1f}s 总时长{avg_tr:.1f}s"
             if acc_str:
                 line += f" | {acc_str}"
-            if rq_str:
-                line += rq_str
             interpret_lines.append(line)
 
     date_hint = f"（{run_date}）" if run_date else "（最新日期）"
@@ -96,6 +87,8 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
     all_results = {}
     audit_lines = []
     for report_type in modules:
+        if report_type == 'sandbox':
+            continue
         result = mgr.batch_audit(report_type, date_str=run_date)
         all_results[report_type] = result
         s = result['summary']
@@ -111,6 +104,21 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
     print(f"{'='*60}")
     print(f"✅ 批量审查完成")
     print(f"{'='*60}")
+
+    # 生成 v3 JSON 文件（供上传框架接口，不自动上传）
+    try:
+        from core.uploader import build_interpret_v3_json, save_v3_json, MODULE_AGENT_MAP
+        for module in modules:
+            if module == 'sandbox':
+                continue
+            result = all_results.get(module, {})
+            avg_score = result.get('summary', {}).get('avg_score', 0)
+            if agent and agent.results.get(module):
+                v3 = build_interpret_v3_json(agent, module, avg_score)
+                agent_id = MODULE_AGENT_MAP[module]['agent_id']
+                save_v3_json(agent_id, run_date or agent.run_date, model, v3, server=server, suffix='_accuracy')
+    except Exception as e:
+        print(f"[v3 JSON生成] 失败: {e}")
 
     # 飞书通知（解读指标 + 审查结果，与终端统计格式一致）
     duration_sec = int(time.time() - start_time)
@@ -272,8 +280,18 @@ def main():
     )
     parser.add_argument(
         "--module",
-        choices=["asset", "vuln", "alarm", "event"],
+        choices=["asset", "vuln", "alarm", "event", "sandbox"],
         help="指定模块测试（优先级高于--mode）"
+    )
+    parser.add_argument(
+        "--model",
+        default="190",
+        help="大模型型号名（生成v3 JSON用，如 190/180/cloud/kimi-2.6）"
+    )
+    parser.add_argument(
+        "--server",
+        default="http://localhost:8080",
+        help="服务地址（打印curl上传命令用）"
     )
 
     args = parser.parse_args()
@@ -356,26 +374,60 @@ def main():
                     print(f"📄 生成综合测试报告...")
                     print(f"{'='*60}")
                     agent._generate_comprehensive_report()
+        elif args.module == "sandbox":
+            print("\n" + "="*60)
+            print("运行沙箱报告解读模块测试")
+            print("="*60)
+
+            agent = AIInterpretAgent()
+            from core.config_loader import ConfigLoader
+            config = ConfigLoader()
+            sandbox_ids = config.test_sandboxes if hasattr(config, 'test_sandboxes') else []
+
+            if not sandbox_ids:
+                print("⚠️ 配置文件中没有配置测试沙箱样本 ID")
+            else:
+                from agents.test_case_manager import TestCase
+                test_cases = []
+                for idx, sandbox_id in enumerate(sandbox_ids):
+                    test_case = TestCase(
+                        case_id=f"sandbox_test_{idx+1:02d}",
+                        module="sandbox",
+                        input_data={"sandbox_id": sandbox_id},
+                        expected_output={},
+                        description=f"沙箱解读测试 - {sandbox_id}",
+                        tags=["automated", "sandbox"]
+                    )
+                    test_cases.append(test_case)
+
+                print(f"\n准备执行 {len(test_cases)} 个沙箱解读测试用例...")
+                results = agent.run_module_tests("sandbox", test_cases)
+
+                if results:
+                    print(f"\n{'='*60}")
+                    print(f"📄 生成综合测试报告...")
+                    print(f"{'='*60}")
+                    agent._generate_comprehensive_report()
         # --module 模式：解读完只审查本模块，用启动时日期精确定位
         from datetime import datetime
-        run_batch_audit_after_interpret([args.module], run_date=agent.run_date, agent=agent)
+        run_batch_audit_after_interpret([args.module], run_date=agent.run_date, agent=agent, model=args.model, server=args.server)
         return
     elif args.mode == "init":
         init_sample_test_cases()
         return  # init 模式不触发审查
     elif args.mode == "asset":
         agent = run_asset_test()
-        run_batch_audit_after_interpret(['asset'], run_date=agent.run_date, agent=agent)
+        run_batch_audit_after_interpret(['asset'], run_date=agent.run_date, agent=agent, model=args.model, server=args.server)
         return
     elif args.mode == "alarm":
         agent = run_alarm_test()
-        run_batch_audit_after_interpret(['alarm'], run_date=agent.run_date, agent=agent)
+        run_batch_audit_after_interpret(['alarm'], run_date=agent.run_date, agent=agent, model=args.model, server=args.server)
         return
     elif args.mode == "all":
         agent = AIInterpretAgent()
         agent.run_all_tests()
         # 用 agent.run_date（启动时日期），确保跨午夜时审查和解读读同一目录
-        run_batch_audit_after_interpret(['asset', 'alarm', 'event', 'vuln'], run_date=agent.run_date, agent=agent)
+        run_batch_audit_after_interpret(['asset', 'alarm', 'event', 'vuln'], run_date=agent.run_date, agent=agent, model=args.model, server=args.server)
         return
     else:
         print(f"❌ 未知模式: {args.mode}")

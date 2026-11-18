@@ -70,6 +70,7 @@ class ThreatDeterminationCalculator(BaseCalculator):
     METRIC_NAME = "threat_determination_accuracy"
     METRIC_CN = "威胁定性准确率"
     MAX_SCORE = 100.0
+    DIMENSION = "accuracy"
     EXPECTED_F1 = 0.95
     DEDUCTION_INTERVAL = 0.05
     DEDUCTION_AMOUNT = 5

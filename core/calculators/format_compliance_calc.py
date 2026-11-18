@@ -13,6 +13,7 @@ class FormatComplianceCalculator(BaseCalculator):
     METRIC_NAME = "format_compliance"
     METRIC_CN = "格式合规率"
     MAX_SCORE = 5
+    DIMENSION = "compliance"
 
     REQUIRED_SECTIONS = [
         ("分析摘要", r'(?:1[.、]|#)\s*分析摘要'),

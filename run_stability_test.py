@@ -632,7 +632,6 @@ def save_stability_report(module_type: str, results: List[Dict], pass_count: int
 
     report_dir = os.path.join(os.path.dirname(__file__), "outputs", "stability_test", "stability_reports", run_id)
     os.makedirs(report_dir, exist_ok=True)
-    os.makedirs(report_dir, exist_ok=True)
 
     # 根据模块类型设置报告标题
     if module_type == "vuln":
@@ -938,6 +937,16 @@ def main():
         sys.exit(1)
 
     module_type = sys.argv[1].lower()
+    # 可选参数：--model xxx --server xxx
+    model = "190"
+    server = "http://localhost:8080"
+    argv = sys.argv[2:]
+    for i, arg in enumerate(argv):
+        if arg == "--model" and i + 1 < len(argv):
+            model = argv[i + 1]
+        elif arg == "--server" and i + 1 < len(argv):
+            server = argv[i + 1]
+
     # 生成本次执行的唯一 run_id，所有模块共用，便于 stability_md 和 HTML 报告对应
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     print(f"\n📌 本次执行ID: {run_id}")
@@ -949,6 +958,19 @@ def main():
         all_results["event"] = run_stability_test("event", run_id=run_id)
         all_results["vuln"] = run_stability_test("vuln", run_id=run_id)
         save_combined_stability_report(all_results, run_id=run_id)
+
+        # 生成 v3 JSON 文件（供上传框架接口，不自动上传）
+        try:
+            from core.uploader import build_stability_v3_json, save_v3_json, MODULE_AGENT_MAP
+            for mod in ["alarm", "event", "vuln"]:
+                res = all_results.get(mod)
+                if res is None:
+                    continue
+                v3 = build_stability_v3_json(mod, res)
+                agent_id = MODULE_AGENT_MAP[mod]['agent_id']
+                save_v3_json(agent_id, run_id, model, v3, server=server, suffix='_reliability')
+        except Exception as e:
+            print(f"[v3 JSON生成] 失败: {e}")
 
         # 飞书通知（综合结果，与终端统计格式一致）
         try:
@@ -1001,6 +1023,15 @@ def main():
 
     elif module_type in ["alarm", "event", "vuln"]:
         result = run_stability_test(module_type, run_id=run_id)
+
+        # 生成 v3 JSON 文件（供上传框架接口，不自动上传）
+        try:
+            from core.uploader import build_stability_v3_json, save_v3_json, MODULE_AGENT_MAP
+            v3 = build_stability_v3_json(module_type, result)
+            agent_id = MODULE_AGENT_MAP[module_type]['agent_id']
+            save_v3_json(agent_id, run_id, model, v3, server=server, suffix='_reliability')
+        except Exception as e:
+            print(f"[v3 JSON生成] 失败: {e}")
 
         # 飞书通知（单模块结果，与终端统计格式一致）
         try:

@@ -13,6 +13,7 @@ class StructureCompletenessCalculator(BaseCalculator):
 
     METRIC_NAME = "chapter_structure_completeness"
     MAX_SCORE = 5
+    DIMENSION = "accuracy"
 
     SECTION_PATTERNS = {
         "asset": [

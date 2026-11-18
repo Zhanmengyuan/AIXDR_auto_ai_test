@@ -18,21 +18,24 @@ class AutoAuditManager:
         'asset': 'asset_report_audit',
         'alarm': 'alarm_report_audit',
         'event': 'event_report_audit',
-        'vuln': 'vuln_report_audit'
+        'vuln': 'vuln_report_audit',
+        'sandbox': 'sandbox_report_audit'
     }
 
     REPORT_TYPE_DIR_MAP = {
         'asset': 'asset_report',
         'alarm': 'alarm_report',
         'event': 'event_report',
-        'vuln': 'vuln_report'
+        'vuln': 'vuln_report',
+        'sandbox': 'sandbox_report'
     }
     
     REPORT_TYPE_NAME_MAP = {
         'asset': '资产',
         'alarm': '告警',
         'event': '事件',
-        'vuln': '漏洞'
+        'vuln': '漏洞',
+        'sandbox': '沙箱'
     }
     
     def __init__(self, base_dir: str = None, run_date: str = None):
@@ -53,11 +56,8 @@ class AutoAuditManager:
         self.llm_client = LLMClient()
     
     def _create_audit_dirs(self) -> None:
-        for report_type, dir_name in self.REPORT_TYPE_DIR_MAP.items():
-            audit_dir = os.path.join(self.batch_audit_dir, dir_name)
-            os.makedirs(audit_dir, exist_ok=True)
-        # 综合报告目录也预创建
-        os.makedirs(os.path.join(self.batch_audit_dir, 'audit_reports'), exist_ok=True)
+        # 只创建本次运行的批次根目录，模块子目录按需创建（跑了哪个分类才生成哪个目录）
+        os.makedirs(self.batch_audit_dir, exist_ok=True)
 
     def get_report_dir(self, report_type: str) -> str:
         dir_name = self.REPORT_TYPE_DIR_MAP.get(report_type, f"report/{report_type}")
@@ -105,13 +105,15 @@ class AutoAuditManager:
         filename = os.path.basename(filepath)
         
         if report_type == 'asset':
-            match = re.search(r'asset_report_(\d+)\.md', filename)
+            match = re.search(r'asset_report_(?:\d{2}_)?(.+?)\.md', filename)
         elif report_type == 'alarm':
-            match = re.search(r'alarm_report_(\d+)\.md', filename)
+            match = re.search(r'alarm_report_(?:\d{2}_)?(.+?)\.md', filename)
         elif report_type == 'event':
-            match = re.search(r'event_report_(\d+)\.md', filename)
+            match = re.search(r'event_report_(?:\d{2}_)?(.+?)\.md', filename)
         elif report_type == 'vuln':
-            match = re.search(r'vuln_report_(\d+)\.md', filename)
+            match = re.search(r'vuln_report_(?:\d{2}_)?(.+?)\.md', filename)
+        elif report_type == 'sandbox':
+            match = re.search(r'sandbox_report_(?:\d{2}_)?(.+?)\.md', filename)
         else:
             return None
         
@@ -693,7 +695,8 @@ class AutoAuditManager:
         modules_data = []
 
         for report_type in report_types:
-            report_dir = self.get_report_dir(report_type)
+            # 直接检查 summary 文件是否存在，不创建目录（只读已审查模块）
+            report_dir = os.path.join(self.batch_audit_dir, self.REPORT_TYPE_DIR_MAP.get(report_type, report_type))
             # 尝试两个可能的summary文件名
             summary_file = None
             for candidate in [f"{report_type}_audit_summary.md", f"{self.REPORT_TYPE_DIR_MAP[report_type]}_audit_summary.md"]:

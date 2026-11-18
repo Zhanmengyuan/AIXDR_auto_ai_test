@@ -12,6 +12,7 @@ class CVSSCalculator(BaseCalculator):
     METRIC_NAME = "cvss_score_error"
     METRIC_CN = "CVSS 评分误差"
     MAX_SCORE = 15
+    DIMENSION = "accuracy"
     EXPECTED_ERROR = 0.3
 
     def calculate(self, ai_data: Dict[str, Any], api_data: Dict[str, Any]) -> MetricResult:

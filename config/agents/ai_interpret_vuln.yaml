@@ -1,0 +1,60 @@
+# 漏洞解读 智能体声明
+agent:
+  id: ai_interpret_vuln
+  name: 漏洞解读
+  category: generate         # 内容生成类，权重：准确性70%·可靠性15%·内容质量15%（性能不算分）
+
+metrics:
+  # ── 准确性维度（整体内容合规性，LLM Judge审查）──
+  - key: content_compliance
+    name_cn: 整体内容合规性
+    dimension: accuracy
+    type: score_based
+    thresholds: {max_score: 100}
+    required_fields: [accuracy]
+    sub_weight: 100
+    is_guardrail: true
+    regression_threshold: 0.05
+
+  # ── 可靠性维度 ──
+  - key: disposal_conclusion_stability
+    name_cn: 处置结论稳定性
+    dimension: reliability
+    type: pass_fail
+    thresholds: {}
+    required_fields: [accuracy]
+    sub_weight: 100
+    is_guardrail: false
+    regression_threshold: 0.10
+
+  # ── 内容质量维度 ──
+  - key: format_compliance
+    name_cn: 格式合规率
+    dimension: content_quality
+    type: higher_better
+    thresholds: {best: 1.0, worst: 0.0}
+    required_fields: [accuracy]
+    sub_weight: 100
+    is_guardrail: true
+    regression_threshold: 0.05
+
+  # ── 性能维度（只展示不算分）──
+  - key: first_packet_time
+    name_cn: 首包响应时间
+    dimension: performance
+    type: display_only
+    thresholds: {}
+    required_fields: [value]
+    sub_weight: 50
+    is_guardrail: false
+    regression_threshold: 0.20
+
+  - key: avg_response_time
+    name_cn: 平均响应时间
+    dimension: performance
+    type: display_only
+    thresholds: {}
+    required_fields: [value]
+    sub_weight: 50
+    is_guardrail: false
+    regression_threshold: 0.20

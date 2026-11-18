@@ -12,6 +12,7 @@ class VulnAccuracyCalculator(BaseCalculator):
     METRIC_NAME = "vuln_accuracy"
     METRIC_CN = "漏洞列表准确率"
     MAX_SCORE = 10
+    DIMENSION = "accuracy"
 
     def __init__(self, threshold: float = 1.0):
         super().__init__(threshold)

@@ -1,0 +1,70 @@
+# RAG检索 智能体声明
+agent:
+  id: rag_search
+  name: RAG检索
+  category: qa               # 知识问答类，权重：准确性90%·可靠性5%·内容质量5%（性能不算分）
+                              # 注：无reliability维度，综合分分母排除reliability权重
+
+metrics:
+  # ── 准确性维度（答案正确性）──
+  - key: answer_correctness
+    name_cn: 答案正确性
+    dimension: accuracy
+    type: higher_better
+    thresholds: {best: 1.0, worst: 0.0}
+    required_fields: [accuracy]
+    sub_weight: 100
+    is_guardrail: true
+    regression_threshold: 0.05
+
+  # ── 内容质量维度 ──
+  - key: answer_relevancy
+    name_cn: 答案相关性
+    dimension: content_quality
+    type: higher_better
+    thresholds: {best: 1.0, worst: 0.0}
+    required_fields: [accuracy]
+    sub_weight: 40
+    is_guardrail: false
+    regression_threshold: 0.05
+
+  - key: context_precision
+    name_cn: 上下文精确度
+    dimension: content_quality
+    type: higher_better
+    thresholds: {best: 1.0, worst: 0.0}
+    required_fields: [accuracy]
+    sub_weight: 30
+    is_guardrail: false
+    regression_threshold: 0.05
+
+  - key: context_recall
+    name_cn: 上下文召回率
+    dimension: content_quality
+    type: higher_better
+    thresholds: {best: 1.0, worst: 0.0}
+    required_fields: [accuracy]
+    sub_weight: 30
+    is_guardrail: false
+    regression_threshold: 0.05
+
+  # ── 性能维度（只展示不算分）──
+  - key: first_packet_time
+    name_cn: 首包响应时间
+    dimension: performance
+    type: display_only
+    thresholds: {}
+    required_fields: [value]
+    sub_weight: 50
+    is_guardrail: false
+    regression_threshold: 0.20
+
+  - key: avg_response_time
+    name_cn: 平均响应时间
+    dimension: performance
+    type: display_only
+    thresholds: {}
+    required_fields: [value]
+    sub_weight: 50
+    is_guardrail: false
+    regression_threshold: 0.20

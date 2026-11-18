@@ -12,6 +12,7 @@ class AlarmAccuracyCalculator(BaseCalculator):
     METRIC_NAME = "alarm_accuracy"
     METRIC_CN = "关联告警准确率"
     MAX_SCORE = 5
+    DIMENSION = "accuracy"
 
     def calculate(self, ai_data: Dict[str, Any], api_data: Dict[str, Any]) -> MetricResult:
         """计算告警列表准确率

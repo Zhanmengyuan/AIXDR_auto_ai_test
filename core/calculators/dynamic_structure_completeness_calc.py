@@ -13,6 +13,7 @@ class DynamicStructureCompletenessCalculator(BaseCalculator):
     METRIC_NAME = "dynamic_structure_completeness"
     METRIC_CN = "动态结构完整率"
     MAX_SCORE = 5
+    DIMENSION = "accuracy"
     MIN_EXPECTED_SECTIONS = 3  # 最少期望的 ## 级章节数
 
     def calculate(self, ai_data: Dict[str, Any], api_data: Dict[str, Any] = None) -> MetricResult:
