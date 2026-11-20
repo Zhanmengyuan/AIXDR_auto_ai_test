@@ -36,22 +36,34 @@ def save_v3_json(
     server: str = "http://localhost:8080",
     suffix: str = "",
 ) -> str:
-    """保存 v3 JSON 文件并打印 curl 上传命令（不自动上传）
+    """保存待上传的 v3 JSON 文件并打印 curl 上传命令（不自动上传）
+
+    文件按「批次(run_id) + 智能体(agent_id) + 维度(suffix)」分层存储：
+        outputs/upload/{run_id}/{agent_id}{suffix}.json
+    run_id 统一补齐为 v{model}_ 前缀，与服务端校验规则保持一致。
 
     Args:
         agent_id: 智能体标识
-        run_id: 批次标识
+        run_id: 批次标识（日期时间戳等；自动补齐 v{model}_ 前缀，避免双前缀）
         model: 大模型型号名
         data: v3 JSON 数据（不含 model 字段）
         server: 服务地址（用于打印 curl 命令）
-        suffix: 文件名后缀（区分同一 agent 的不同维度文件，如 _accuracy/_reliability）
+        suffix: 维度后缀（区分同一 agent 的不同维度文件，如 _accuracy/_reliability）
 
     Returns:
         保存的文件路径
     """
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    filename = f"{agent_id}{suffix}_v3.json"
-    filepath = os.path.join(base_dir, "outputs", filename)
+
+    # 统一 run_id 格式：服务端要求 run_id 以 v{model}_ 开头（如 v190_xxx），
+    # 这里自动补齐，防止 client 传纯时间戳导致上传被拒。
+    prefix = f"v{model}_"
+    normalized_run_id = (
+        run_id if str(run_id).lower().startswith(prefix.lower()) else f"{prefix}{run_id}"
+    )
+
+    filename = f"{agent_id}{suffix}.json"
+    filepath = os.path.join(base_dir, "outputs", "upload", normalized_run_id, filename)
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
     with open(filepath, "w", encoding="utf-8") as f:
@@ -62,7 +74,7 @@ def save_v3_json(
     print(f"{'='*60}")
     print(f"📤 上传命令（复制执行）：")
     print(f"")
-    print(f"  curl -X POST \"{server}/api/v1/results?agent_id={agent_id}&run_id={run_id}&model={model}\" \\")
+    print(f"  curl -X POST \"{server}/api/v1/results?agent_id={agent_id}&run_id={normalized_run_id}&model={model}\" \\")
     print(f"    -H \"Content-Type: application/json\" \\")
     print(f"    -d @{filepath}")
     print(f"{'='*60}")

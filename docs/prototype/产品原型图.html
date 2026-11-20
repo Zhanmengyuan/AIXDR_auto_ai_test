@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIXDR 智能体测试平台 - 产品原型</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #f0f2f5; color: #1a1a2e; line-height: 1.6;
+  display: flex; min-height: 100vh;
+}
+
+/* ── 左侧导航栏 ── */
+.sidebar {
+  width: 220px; background: #1a1a2e; color: white;
+  padding: 20px 0; flex-shrink: 0; min-height: 100vh;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+.logo {
+  padding: 0 24px 20px; font-size: 18px; font-weight: 800; letter-spacing: 1px;
+  border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 16px;
+}
+.logo span { color: #667eea; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 24px; cursor: pointer; font-size: 14px;
+  color: rgba(255,255,255,0.7); transition: all 0.2s;
+  border-left: 3px solid transparent;
+}
+.nav-item:hover { background: rgba(255,255,255,0.05); color: white; }
+.nav-item.active { background: rgba(102,126,234,0.2); color: white; border-left-color: #667eea; }
+.nav-item .icon { font-size: 16px; width: 20px; }
+.nav-group-title {
+  padding: 20px 24px 8px; font-size: 11px; color: rgba(255,255,255,0.4);
+  letter-spacing: 2px;
+}
+
+/* ── 主内容区 ── */
+.main {
+  flex: 1; padding: 24px 32px; max-width: 1400px;
+}
+.page { display: none; }
+.page.active { display: block; }
+
+.page-header-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 24px;
+}
+.page-title { font-size: 24px; font-weight: 800; color: #1a1a2e; }
+.page-subtitle { font-size: 13px; color: #9ca3af; margin-top: 4px; }
+
+/* ── 卡片 ── */
+.card {
+  background: white; border-radius: 12px; padding: 24px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07); margin-bottom: 20px;
+}
+.card-title {
+  font-size: 15px; font-weight: 700; color: #1a1a2e; margin-bottom: 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+
+/* ── 统计卡片 ── */
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+.stat-card {
+  background: white; border-radius: 12px; padding: 22px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07); text-align: center;
+  border-top: 3px solid transparent;
+}
+.stat-card .num { font-size: 34px; font-weight: 800; }
+.stat-card .label { font-size: 13px; color: #9ca3af; margin-top: 4px; }
+.stat-card.purple { border-color: #667eea; } .stat-card.purple .num { color: #667eea; }
+.stat-card.green { border-color: #10b981; } .stat-card.green .num { color: #10b981; }
+.stat-card.blue { border-color: #3b82f6; } .stat-card.blue .num { color: #3b82f6; }
+.stat-card.orange { border-color: #f59e0b; } .stat-card.orange .num { color: #f59e0b; }
+
+/* ── 表格 ── */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+thead th {
+  padding: 12px 14px; text-align: left; font-size: 12px; font-weight: 600;
+  color: #9ca3af; background: #fafafa; border-bottom: 1px solid #f0f0f0;
+  white-space: nowrap;
+}
+tbody td {
+  padding: 13px 14px; border-bottom: 1px solid #f5f5f5; vertical-align: middle;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr { cursor: pointer; transition: background 0.15s; }
+tbody tr:hover { background: #f8faff; }
+.agent-name { font-weight: 600; color: #1a1a2e; }
+.agent-sub { font-size: 12px; color: #9ca3af; }
+
+/* ── 徽章 ── */
+.badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px;
+  font-size: 13px; font-weight: 800;
+}
+.badge-S { background: #d1fae5; color: #065f46; }
+.badge-A { background: #dbeafe; color: #1e40af; }
+.badge-B { background: #fef3c7; color: #92400e; }
+
+/* ── 按钮 ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; transition: all 0.2s;
+}
+.btn-primary { background: #667eea; color: white; }
+.btn-primary:hover { background: #5a67d8; }
+.btn-outline { background: white; color: #667eea; border: 1px solid #667eea; }
+.btn-outline:hover { background: #f8faff; }
+
+/* ── 来源模型横幅 ── */
+.model-banner {
+  display: inline-flex; align-items: center; gap: 12px;
+  padding: 12px 24px; border-radius: 10px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white; margin-bottom: 20px;
+}
+.model-banner .label { font-size: 13px; opacity: 0.8; }
+.model-banner .value { font-size: 20px; font-weight: 800; }
+
+/* ── 表单 ── */
+.form-group { margin-bottom: 18px; }
+.form-label { display: block; font-size: 13px; font-weight: 600; color: #4a5568; margin-bottom: 6px; }
+.form-control {
+  width: 100%; padding: 10px 14px; border: 1px solid #e2e8f0;
+  border-radius: 8px; font-size: 14px; font-family: inherit;
+}
+.form-control:focus { outline: none; border-color: #667eea; }
+textarea.form-control { min-height: 200px; font-family: monospace; }
+
+/* ── 趋势图占位 ── */
+.chart-placeholder {
+  height: 300px; border-radius: 10px;
+  background: #f7fafc; border: 1px dashed #d1d5db;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  color: #9ca3af;
+}
+.chart-placeholder .icon { font-size: 40px; margin-bottom: 8px; }
+
+/* ── 原型标注 ── */
+.proto-note {
+  background: #fef3c7; border-left: 3px solid #f59e0b;
+  padding: 10px 16px; border-radius: 6px; font-size: 12px; color: #92400e;
+  margin-bottom: 16px;
+}
+
+/* ── 颜色工具 ── */
+.c-green { color: #10b981; }
+.c-blue { color: #3b82f6; }
+.c-yellow { color: #f59e0b; }
+.c-red { color: #ef4444; }
+.c-gray { color: #9ca3af; }
+.delta-up { color: #10b981; font-weight: 700; }
+.delta-down { color: #ef4444; font-weight: 700; }
+.delta-flat { color: #9ca3af; }
+</style>
+</head>
+<body>
+
+<!-- ═══ 左侧导航栏 ═══ -->
+<div class="sidebar">
+  <div class="logo">AIXDR <span>智能体测试</span></div>
+
+  <div class="nav-group-title">数据</div>
+  <div class="nav-item" onclick="showPage('p-home')"><span class="icon">🏠</span>首页 / 批次总览</div>
+  <div class="nav-item" onclick="showPage('p-upload')"><span class="icon">📤</span>数据上传</div>
+
+  <div class="nav-group-title">报告</div>
+  <div class="nav-item" onclick="showPage('p-report')"><span class="icon">📊</span>批次报告</div>
+  <div class="nav-item" onclick="showPage('p-agent')"><span class="icon">🤖</span>智能体详情</div>
+
+  <div class="nav-group-title">分析</div>
+  <div class="nav-item" onclick="showPage('p-compare')"><span class="icon">🔄</span>版本对比</div>
+  <div class="nav-item" onclick="showPage('p-trend')"><span class="icon">📈</span>趋势分析</div>
+
+  <div class="nav-group-title">管理</div>
+  <div class="nav-item" onclick="showPage('p-admin')"><span class="icon">⚙️</span>智能体管理</div>
+</div>
+
+<!-- ═══ 主内容区 ═══ -->
+<div class="main">
+
+  <!-- ══ 页面1：首页/批次总览 ══ -->
+  <div class="page active" id="p-home">
+    <div class="page-header-bar">
+      <div>
+        <div class="page-title">首页 · 批次总览</div>
+        <div class="page-subtitle">查看所有测试批次，点击批次进入报告</div>
+      </div>
+      <button class="btn btn-primary" onclick="showPage('p-upload')">+ 上传测试数据</button>
+    </div>
+
+    <div class="proto-note">📌 原型说明：展示最新批次概览 + 历史批次列表，点击批次卡片进入该批次报告</div>
+
+    <div class="model-banner">
+      <span class="label">最新批次来源模型</span>
+      <span class="value">190一体机</span>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card purple"><div class="num">13</div><div class="label">参测智能体</div></div>
+      <div class="stat-card green"><div class="num">88.6</div><div class="label">整体综合分</div></div>
+      <div class="stat-card blue"><div class="num">A</div><div class="label">整体评级</div></div>
+      <div class="stat-card orange"><div class="num">v190_20261118</div><div class="label">最新批次</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 历史批次列表</div>
+      <div class="proto-note">📌 支持按模型、时间范围、评级筛选，关键字搜索批次名</div>
+      <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+        <div class="form-group" style="margin-bottom:0;min-width:160px;">
+          <label class="form-label">模型</label>
+          <select class="form-control">
+            <option>全部模型</option>
+            <option>180一体机</option>
+            <option>190一体机</option>
+            <option>云端大模型</option>
+            <option>kimi-2.6</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;min-width:140px;">
+          <label class="form-label">评级</label>
+          <select class="form-control">
+            <option>全部评级</option>
+            <option>S级</option>
+            <option>A级</option>
+            <option>B级及以下</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0;min-width:160px;">
+          <label class="form-label">开始日期</label>
+          <input type="date" class="form-control">
+        </div>
+        <div class="form-group" style="margin-bottom:0;min-width:160px;">
+          <label class="form-label">结束日期</label>
+          <input type="date" class="form-control">
+        </div>
+        <div class="form-group" style="margin-bottom:0;min-width:180px;">
+          <label class="form-label">关键字搜索</label>
+          <input type="text" class="form-control" placeholder="搜索批次名，如 v190">
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-end;">
+          <button class="btn btn-primary">筛选</button>
+          <button class="btn btn-outline">重置</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>批次</th><th>模型</th><th>整体综合分</th><th>评级</th><th>参测智能体</th><th>测试日期</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            <tr onclick="showPage('p-report')">
+              <td class="agent-name">v190_20261118</td><td>190一体机</td><td class="c-green" style="font-weight:700">88.6</td><td><span class="badge badge-A">A</span></td><td>13</td><td>2026-11-18</td><td class="c-blue">查看报告 →</td>
+            </tr>
+            <tr onclick="showPage('p-report')">
+              <td class="agent-name">v180_20261110</td><td>180一体机</td><td class="c-blue" style="font-weight:700">86.2</td><td><span class="badge badge-A">A</span></td><td>13</td><td>2026-11-10</td><td class="c-blue">查看报告 →</td>
+            </tr>
+            <tr onclick="showPage('p-report')">
+              <td class="agent-name">cloud_20261101</td><td>云端大模型</td><td class="c-green" style="font-weight:700">90.1</td><td><span class="badge badge-S">S</span></td><td>13</td><td>2026-11-01</td><td class="c-blue">查看报告 →</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 页面2：数据上传 ══ -->
+  <div class="page" id="p-upload">
+    <div class="page-header-bar">
+      <div>
+        <div class="page-title">数据上传</div>
+        <div class="page-subtitle">上传测试数据到平台（各团队也可用 curl 命令上传）</div>
+      </div>
+    </div>
+
+    <div class="proto-note">📌 原型说明：Web 上传表单，也保留 curl 上传方式（展示在右侧或下方）</div>
+
+    <div class="card">
+      <div class="card-title">📤 上传测试数据</div>
+      <div class="form-group">
+        <label class="form-label">智能体</label>
+        <select class="form-control">
+          <option>安全告警解读 (ai_interpret_alarm)</option>
+          <option>WAF降噪 (waf_dedup)</option>
+          <option>text2sql</option>
+          <option>RAG检索 (rag_search)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">批次</label>
+        <select class="form-control">
+          <option>v190_20261118</option>
+          <option>v180_20261110</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">大模型</label>
+        <select class="form-control">
+          <option>190一体机</option>
+          <option>180一体机</option>
+          <option>云端大模型</option>
+          <option>kimi-2.6</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">JSON 内容（粘贴或上传文件）</label>
+        <textarea class="form-control" placeholder='{"category": "generate", "total_samples": 2, ...}'></textarea>
+      </div>
+      <button class="btn btn-primary">上传</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">💻 或使用 curl 命令上传</div>
+      <div class="proto-note">各团队测试脚本可自动生成 JSON 后，用 curl 上传（无需打开网页）</div>
+      <pre style="background:#1a1a2e;color:#16c79a;padding:16px;border-radius:8px;font-size:12px;overflow-x:auto;">curl -X POST "http://10.21.179.193:8080/api/v1/results?agent_id=waf_dedup&run_id=v190_20261118&model=190" \
+  -H "Content-Type: application/json" \
+  -d @waf_dedup_results.json</pre>
+    </div>
+  </div>
+
+  <!-- ══ 页面3：批次报告 ══ -->
+  <div class="page" id="p-report">
+    <div class="page-header-bar">
+      <div>
+        <div class="page-title">批次报告</div>
+        <div class="page-subtitle">查看某个批次的智能体测试报告</div>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-outline" onclick="showPage('p-compare')">🔄 版本对比</button>
+        <button class="btn btn-outline" onclick="showPage('p-home')">← 返回批次列表</button>
+      </div>
+    </div>
+
+    <div class="proto-note">📌 原型说明：顶部批次选择器可切换查看任意批次（不限于最新），下方展示该批次的报告</div>
+
+    <div class="card">
+      <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="form-group" style="min-width:260px;margin-bottom:0;">
+          <label class="form-label">选择批次</label>
+          <select class="form-control">
+            <option>v190_20261118 (190一体机)</option>
+            <option>v180_20261110 (180一体机)</option>
+            <option>cloud_20261101 (云端大模型)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary">查看</button>
+      </div>
+    </div>
+
+    <div class="model-banner">
+      <span class="label">来源模型</span>
+      <span class="value">190一体机</span>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card purple"><div class="num">88.6</div><div class="label">准确性综合分</div></div>
+      <div class="stat-card green"><div class="num">13</div><div class="label">参测智能体</div></div>
+      <div class="stat-card blue"><div class="num">8</div><div class="label">S级</div></div>
+      <div class="stat-card orange"><div class="num">5</div><div class="label">A级</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 各智能体准确性评分</div>
+      <div class="proto-note">📌 点击智能体行 → 进入智能体详情页；各分类分组展示</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>智能体</th><th>F1值/准确率</th><th>黑样本准确率</th><th>白样本准确率</th><th>准确性分值</th><th>评级</th><th>失败样本</th></tr>
+          </thead>
+          <tbody>
+            <tr onclick="showPage('p-agent')"><td class="agent-name">WAF降噪</td><td class="c-green" style="font-weight:700">0.977</td><td class="c-green">97.00%</td><td class="c-green">98.33%</td><td class="c-green" style="font-weight:700">97.5</td><td><span class="badge badge-S">S</span></td><td>0</td></tr>
+            <tr onclick="showPage('p-agent')"><td class="agent-name">恶意文件检测</td><td class="c-blue" style="font-weight:700">0.944</td><td class="c-blue">89.60%</td><td class="c-green">99.80%</td><td class="c-green" style="font-weight:700">94.5</td><td><span class="badge badge-S">S</span></td><td>0</td></tr>
+            <tr onclick="showPage('p-agent')"><td class="agent-name">Webshell检测</td><td class="c-green" style="font-weight:700">0.966</td><td class="c-green">97.20%</td><td class="c-green">99.40%</td><td class="c-green" style="font-weight:700">96.6</td><td><span class="badge badge-S">S</span></td><td>0</td></tr>
+            <tr onclick="showPage('p-agent')"><td class="agent-name">钓鱼邮件检测</td><td class="c-yellow" style="font-weight:700">0.798</td><td class="c-yellow">78.17%</td><td class="c-blue">82.33%</td><td class="c-yellow" style="font-weight:700">79.8</td><td><span class="badge badge-B">B</span></td><td>0</td></tr>
+            <tr onclick="showPage('p-agent')"><td class="agent-name">安全告警解读</td><td class="c-green" style="font-weight:700">98/100</td><td class="c-gray">—</td><td class="c-gray">—</td><td class="c-green" style="font-weight:700">98.0</td><td><span class="badge badge-S">S</span></td><td>3</td></tr>
+            <tr onclick="showPage('p-agent')"><td class="agent-name">安全事件解读</td><td class="c-green" style="font-weight:700">91/100</td><td class="c-gray">—</td><td class="c-gray">—</td><td class="c-green" style="font-weight:700">91.0</td><td><span class="badge badge-S">S</span></td><td>2</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⏱️ 各智能体性能指标（只展示不算分）</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>智能体</th><th>首包响应时间</th><th>平均响应时间</th></tr></thead>
+          <tbody>
+            <tr><td class="agent-name">WAF降噪</td><td class="c-gray">— 无首包</td><td class="c-green">9.74s</td></tr>
+            <tr><td class="agent-name">安全告警解读</td><td class="c-green">0.26s</td><td class="c-green">24.14s</td></tr>
+            <tr><td class="agent-name">安全事件解读</td><td class="c-green">0.2s</td><td class="c-green">26.6s</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 失败样本溯源</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>智能体</th><th>总样本</th><th>有效样本</th><th>失败样本数</th><th>失败样本ID</th></tr></thead>
+          <tbody>
+            <tr onclick="showPage('p-agent')"><td class="agent-name">安全告警解读</td><td>2</td><td>2</td><td class="c-gray">0</td><td class="c-gray">—</td></tr>
+            <tr onclick="showPage('p-agent')"><td class="agent-name">text2sql</td><td>400</td><td>392</td><td class="c-red" style="font-weight:700">8</td><td style="font-size:12px">query_003, query_017, ...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 页面4：智能体详情 ══ -->
+  <div class="page" id="p-agent">
+    <div class="page-header-bar">
+      <div>
+        <div class="page-title">智能体详情 · 安全告警解读</div>
+        <div class="page-subtitle">ai_interpret_alarm · 内容生成类</div>
+      </div>
+      <button class="btn btn-outline" onclick="showPage('p-report')">← 返回报告</button>
+    </div>
+
+    <div class="model-banner">
+      <span class="label">来源模型</span>
+      <span class="value">190一体机</span>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📈 准确性分值：<span class="c-green">98.0分</span>（S级）</div>
+      <div class="proto-note">📌 点击展开计算过程：content_compliance 怎么来的</div>
+      <div style="background:#f7fafc;padding:16px;border-radius:8px;font-size:13px;line-height:2.2;color:#4a5568;">
+        <strong style="color:#667eea;">计算过程：</strong><br>
+        原始值：content_compliance = 98分（LLM审查均分）<br>
+        归一化：score_based → 98 ÷ 100 × 100 = 98.0分
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔍 指标明细</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>维度</th><th>指标</th><th>值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>accuracy</td><td class="agent-name">content_compliance</td><td class="c-green" style="font-weight:700">98.0</td><td>整体内容合规性（LLM审查分）</td></tr>
+            <tr><td>performance</td><td class="agent-name">first_packet_time</td><td>0.26s</td><td>首包响应时间（只展示）</td></tr>
+            <tr><td>performance</td><td class="agent-name">avg_response_time</td><td>24.14s</td><td>平均响应时间（只展示）</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⚠️ 失败样本（0条）</div>
+      <div class="proto-note">📌 有失败样本时，展示 sample_id + 失败原因，支持下钻溯源</div>
+      <div class="c-gray" style="text-align:center;padding:20px;">暂无失败样本</div>
+    </div>
+  </div>
+
+  <!-- ══ 页面5：版本对比 ══ -->
+  <div class="page" id="p-compare">
+    <div class="page-header-bar">
+      <div>
+        <div class="page-title">版本对比</div>
+        <div class="page-subtitle">对比两个批次的智能体测试结果</div>
+      </div>
+    </div>
+
+    <div class="proto-note">📌 原型说明：选择两个批次，展示逐智能体分数变化</div>
+
+    <div class="card">
+      <div style="display:flex;gap:20px;align-items:flex-end;">
+        <div class="form-group" style="flex:1;margin-bottom:0;">
+          <label class="form-label">批次A（旧版本）</label>
+          <select class="form-control"><option>v180_20261110 (180一体机)</option><option>v190_20261118 (190一体机)</option></select>
+        </div>
+        <div style="font-size:24px;color:#9ca3af;padding-bottom:10px;">→</div>
+        <div class="form-group" style="flex:1;margin-bottom:0;">
+          <label class="form-label">批次B（新版本）</label>
+          <select class="form-control"><option>v190_20261118 (190一体机)</option><option>v180_20261110 (180一体机)</option></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">整体对比：86.2 (A) → 88.6 (A) <span class="delta-up">↑ +2.4</span></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>智能体</th><th>批次A (180)</th><th>批次B (190)</th><th>变化</th><th>结论</th></tr></thead>
+          <tbody>
+            <tr><td class="agent-name">WAF降噪</td><td>95.0</td><td>97.5</td><td class="delta-up">↑ +2.5</td><td class="c-green">提升</td></tr>
+            <tr><td class="agent-name">安全告警解读</td><td>96.0</td><td>98.0</td><td class="delta-up">↑ +2.0</td><td class="c-green">提升</td></tr>
+            <tr><td class="agent-name">漏洞解读</td><td>92.0</td><td>88.7</td><td class="delta-down">↓ -3.3</td><td class="c-red">退化</td></tr>
+            <tr><td class="agent-name">钓鱼邮件检测</td><td>80.0</td><td>79.8</td><td class="delta-flat">→ -0.2</td><td class="c-gray">持平</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 页面6：趋势分析 ══ -->
+  <div class="page" id="p-trend">
+    <div class="page-header-bar">
+      <div>
+        <div class="page-title">趋势分析</div>
+        <div class="page-subtitle">查看智能体历史测试分数变化</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="form-group">
+        <label class="form-label">选择智能体</label>
+        <select class="form-control">
+          <option>安全告警解读 (ai_interpret_alarm)</option>
+          <option>WAF降噪 (waf_dedup)</option>
+          <option>text2sql</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📈 准确性分数趋势</div>
+      <div class="chart-placeholder">
+        <div class="icon">📈</div>
+        <div>ECharts 折线图（此处为占位）</div>
+        <div style="font-size:12px;">横轴=批次时间，纵轴=准确性分数</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">历史分数明细</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>批次</th><th>模型</th><th>准确性分</th><th>评级</th><th>变化</th></tr></thead>
+          <tbody>
+            <tr><td>v190_20261118</td><td>190一体机</td><td class="c-green" style="font-weight:700">98.0</td><td><span class="badge badge-S">S</span></td><td class="delta-up">↑ +2.0</td></tr>
+            <tr><td>v180_20261110</td><td>180一体机</td><td class="c-green" style="font-weight:700">96.0</td><td><span class="badge badge-S">S</span></td><td class="delta-up">↑ +1.5</td></tr>
+            <tr><td>cloud_20261101</td><td>云端大模型</td><td class="c-green" style="font-weight:700">94.5</td><td><span class="badge badge-S">S</span></td><td class="delta-flat">— 首测</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 页面7：智能体管理 ══ -->
+  <div class="page" id="p-admin">
+    <div class="page-header-bar">
+      <div>
+        <div class="page-title">智能体管理</div>
+        <div class="page-subtitle">管理所有智能体的基础信息和指标配置</div>
+      </div>
+    </div>
+
+    <div class="proto-note">📌 原型说明：从声明文件 config/agents/*.yaml 导入，展示13个智能体及指标配置</div>
+
+    <div class="card">
+      <div class="card-title">🔍 检测研判类（5个）</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>智能体</th><th>agent_id</th><th>准确性指标</th><th>分类权重</th></tr></thead>
+          <tbody>
+            <tr><td class="agent-name">WAF降噪</td><td>waf_dedup</td><td>F1（框架算）</td><td>准90%·靠5%·内5%</td></tr>
+            <tr><td class="agent-name">恶意文件检测</td><td>malfile_detect</td><td>F1（框架算）</td><td>准90%·靠5%·内5%</td></tr>
+            <tr><td class="agent-name">Webshell检测</td><td>webshell_detect</td><td>F1（框架算）</td><td>准90%·靠5%·内5%</td></tr>
+            <tr><td class="agent-name">钓鱼邮件检测</td><td>phishing_detect</td><td>F1（框架算）</td><td>准90%·靠5%·内5%</td></tr>
+            <tr><td class="agent-name">本地情报提取</td><td>ioc_extract</td><td>F1（框架算）</td><td>准90%·靠5%·内5%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📝 内容生成类（5个）</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>智能体</th><th>agent_id</th><th>准确性指标</th><th>分类权重</th></tr></thead>
+          <tbody>
+            <tr><td class="agent-name">安全告警解读</td><td>ai_interpret_alarm</td><td>整体内容合规性</td><td>准70%·靠15%·内15%</td></tr>
+            <tr><td class="agent-name">安全事件解读</td><td>ai_interpret_event</td><td>整体内容合规性</td><td>准70%·靠15%·内15%</td></tr>
+            <tr><td class="agent-name">资产解读</td><td>ai_interpret_asset</td><td>整体内容合规性</td><td>准70%·靠15%·内15%</td></tr>
+            <tr><td class="agent-name">漏洞解读</td><td>ai_interpret_vuln</td><td>整体内容合规性</td><td>准70%·靠15%·内15%</td></tr>
+            <tr><td class="agent-name">沙箱文件解读</td><td>ai_interpret_sandbox</td><td>整体内容合规性</td><td>准70%·靠15%·内15%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔎 查询类 + 💬 知识问答类（3个）</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>智能体</th><th>agent_id</th><th>准确性指标</th><th>分类权重</th></tr></thead>
+          <tbody>
+            <tr><td class="agent-name">text2sql</td><td>text2sql</td><td>结果准确率</td><td>准80%·靠10%·内10%</td></tr>
+            <tr><td class="agent-name">数字人知识查询</td><td>digital_human</td><td>固定答案准确率</td><td>准80%·靠10%·内10%</td></tr>
+            <tr><td class="agent-name">RAG检索</td><td>rag_search</td><td>答案正确性</td><td>准90%·靠5%·内5%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function showPage(pageId) {
+  // 隐藏所有页面
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  // 显示目标页面
+  document.getElementById(pageId).classList.add('active');
+  // 更新导航高亮
+  const navMap = {
+    'p-home': 0, 'p-upload': 1, 'p-report': 2, 'p-agent': 3,
+    'p-compare': 4, 'p-trend': 5, 'p-admin': 6
+  };
+  document.querySelectorAll('.nav-item').forEach((n, i) => {
+    n.classList.toggle('active', navMap[pageId] === i);
+  });
+}
+</script>
+</body>
+</html>

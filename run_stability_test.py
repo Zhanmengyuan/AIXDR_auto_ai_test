@@ -934,22 +934,33 @@ def main():
         print("  python3 run_stability_test.py event")
         print("  python3 run_stability_test.py vuln")
         print("  python3 run_stability_test.py all")
+        print("")
+        print("可选参数:")
+        print("  --model xxx   大模型型号（默认 190）")
+        print("  --server xxx  服务地址（默认 http://localhost:8080）")
+        print("  --run-id xxx  上传批次标识（与解读测试同值可合并 accuracy+reliability）")
         sys.exit(1)
 
     module_type = sys.argv[1].lower()
-    # 可选参数：--model xxx --server xxx
+    # 可选参数：--model xxx --server xxx --run-id xxx
     model = "190"
     server = "http://localhost:8080"
+    run_id_arg = None
     argv = sys.argv[2:]
     for i, arg in enumerate(argv):
         if arg == "--model" and i + 1 < len(argv):
             model = argv[i + 1]
         elif arg == "--server" and i + 1 < len(argv):
             server = argv[i + 1]
+        elif arg == "--run-id" and i + 1 < len(argv):
+            run_id_arg = argv[i + 1]
 
     # 生成本次执行的唯一 run_id，所有模块共用，便于 stability_md 和 HTML 报告对应
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     print(f"\n📌 本次执行ID: {run_id}")
+
+    # 上传用的批次标识：--run-id 优先（与解读测试同一个值可合并），否则用本次时间戳
+    upload_run_id = run_id_arg or run_id
 
     if module_type == "all":
         print("\n🔄 测试所有模块的稳定性...")
@@ -968,7 +979,7 @@ def main():
                     continue
                 v3 = build_stability_v3_json(mod, res)
                 agent_id = MODULE_AGENT_MAP[mod]['agent_id']
-                save_v3_json(agent_id, run_id, model, v3, server=server, suffix='_reliability')
+                save_v3_json(agent_id, upload_run_id, model, v3, server=server, suffix='_reliability')
         except Exception as e:
             print(f"[v3 JSON生成] 失败: {e}")
 
@@ -1029,7 +1040,7 @@ def main():
             from core.uploader import build_stability_v3_json, save_v3_json, MODULE_AGENT_MAP
             v3 = build_stability_v3_json(module_type, result)
             agent_id = MODULE_AGENT_MAP[module_type]['agent_id']
-            save_v3_json(agent_id, run_id, model, v3, server=server, suffix='_reliability')
+            save_v3_json(agent_id, upload_run_id, model, v3, server=server, suffix='_reliability')
         except Exception as e:
             print(f"[v3 JSON生成] 失败: {e}")
 

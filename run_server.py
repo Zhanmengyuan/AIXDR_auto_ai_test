@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from core.validator import ManifestRegistry, validate_result
+from core.aggregator import merge_result
 
 
 app = FastAPI(title="AI 智能体统一测试框架", version="1.0")
@@ -55,6 +56,16 @@ async def upload_results(
             "message": "model 参数不能为空"
         })
     model = model.strip()
+
+    # 校验 run_id 与 model 匹配：run_id 的批次前缀（第一个 _ 之前）必须为 v{model}
+    # 例如 model=190 要求 run_id 形如 v190_xxx，防止数据混批
+    batch_prefix = run_id.split("_", 1)[0]
+    if batch_prefix.lower() != f"v{model.lower()}":
+        raise HTTPException(status_code=400, detail={
+            "status": "error",
+            "code": "MODEL_BATCH_MISMATCH",
+            "message": "模型和批次不符，请保证模型和批次吻合"
+        })
 
     try:
         data = await request.json()
@@ -92,38 +103,11 @@ async def upload_results(
     data["model"] = model
     data["_uploaded_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 如果已存在，合并 dimensions 和失败/失效样本
+    # 如果已存在，按指标类型聚合（样本数累加 / f1 计数累加 / 标量加权平均 / 样本并集）
     if os.path.exists(filepath):
         with open(filepath, "r", encoding="utf-8") as f:
             existing = json.load(f)
-
-        # 合并 dimensions（各维度合并，同维度下的指标合并）
-        merged_dims = existing.get("dimensions", {})
-        new_dims = data.get("dimensions", {})
-        for dim_name, dim_data in new_dims.items():
-            if isinstance(dim_data, dict):
-                if dim_name in merged_dims and isinstance(merged_dims[dim_name], dict):
-                    merged_dims[dim_name].update(dim_data)
-                else:
-                    merged_dims[dim_name] = dim_data
-        data["dimensions"] = merged_dims
-
-        # 合并失败/失效样本（追加去重）
-        existing_failed = existing.get("failed_samples", [])
-        new_failed = data.get("failed_samples", [])
-        existing_ids = {s.get("sample_id") for s in existing_failed if isinstance(s, dict)}
-        for s in new_failed:
-            if isinstance(s, dict) and s.get("sample_id") not in existing_ids:
-                existing_failed.append(s)
-        data["failed_samples"] = existing_failed
-
-        existing_invalid = existing.get("invalid_samples", [])
-        new_invalid = data.get("invalid_samples", [])
-        existing_invalid_ids = {s.get("sample_id") for s in existing_invalid if isinstance(s, dict)}
-        for s in new_invalid:
-            if isinstance(s, dict) and s.get("sample_id") not in existing_invalid_ids:
-                existing_invalid.append(s)
-        data["invalid_samples"] = existing_invalid
+        data = merge_result(existing, data, manifest)
 
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)

@@ -11,7 +11,8 @@ from agents import AIInterpretAgent, TestCaseManager
 
 
 def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, agent=None,
-                                    model: str = "190", server: str = "http://localhost:8080"):
+                                    model: str = "190", server: str = "http://localhost:8080",
+                                    upload_run_id: str = None):
     """解读完成后自动触发批量审查，完成后发飞书通知（含解读指标+审查结果）
 
     Args:
@@ -20,6 +21,8 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
         agent: AIInterpretAgent实例，用于提取解读指标
         model: 大模型型号名（生成v3 JSON用）
         server: 服务地址（打印curl上传命令用）
+        upload_run_id: 上传用的批次标识（run_id），默认用 run_date；
+            与稳定性测试传同一个值可合并到同一结果
     """
     import time
     start_time = time.time()
@@ -116,7 +119,7 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
             if agent and agent.results.get(module):
                 v3 = build_interpret_v3_json(agent, module, avg_score)
                 agent_id = MODULE_AGENT_MAP[module]['agent_id']
-                save_v3_json(agent_id, run_date or agent.run_date, model, v3, server=server, suffix='_accuracy')
+                save_v3_json(agent_id, upload_run_id or run_date or agent.run_date, model, v3, server=server, suffix='_accuracy')
     except Exception as e:
         print(f"[v3 JSON生成] 失败: {e}")
 
@@ -140,8 +143,13 @@ def run_batch_audit_after_interpret(modules: list = None, run_date: str = None, 
         overall_fp = sum(all_fp_times)/len(all_fp_times) if all_fp_times else 0
         overall_tr = sum(all_tr_times)/len(all_tr_times) if all_tr_times else 0
 
+        # 环境信息（XDR测试环境地址）
+        from core.config_loader import ConfigLoader
+        xdr_base_url = ConfigLoader().base_url or "未知"
+
         # 解读结果统计
         lines = [
+            f"🔗 XDR测试环境: {xdr_base_url}",
             f"📊 全模块解读测试结果统计",
             f"  总测试数: {total_cases}",
             f"  有效样本: {total_valid}（参与指标计算）",
@@ -293,6 +301,11 @@ def main():
         default="http://localhost:8080",
         help="服务地址（打印curl上传命令用）"
     )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="上传用的批次标识（run_id），默认用本次运行时间戳；与稳定性测试传同一个值可合并到同一结果"
+    )
 
     args = parser.parse_args()
 
@@ -410,24 +423,24 @@ def main():
                     agent._generate_comprehensive_report()
         # --module 模式：解读完只审查本模块，用启动时日期精确定位
         from datetime import datetime
-        run_batch_audit_after_interpret([args.module], run_date=agent.run_date, agent=agent, model=args.model, server=args.server)
+        run_batch_audit_after_interpret([args.module], run_date=agent.run_date, agent=agent, model=args.model, server=args.server, upload_run_id=args.run_id)
         return
     elif args.mode == "init":
         init_sample_test_cases()
         return  # init 模式不触发审查
     elif args.mode == "asset":
         agent = run_asset_test()
-        run_batch_audit_after_interpret(['asset'], run_date=agent.run_date, agent=agent, model=args.model, server=args.server)
+        run_batch_audit_after_interpret(['asset'], run_date=agent.run_date, agent=agent, model=args.model, server=args.server, upload_run_id=args.run_id)
         return
     elif args.mode == "alarm":
         agent = run_alarm_test()
-        run_batch_audit_after_interpret(['alarm'], run_date=agent.run_date, agent=agent, model=args.model, server=args.server)
+        run_batch_audit_after_interpret(['alarm'], run_date=agent.run_date, agent=agent, model=args.model, server=args.server, upload_run_id=args.run_id)
         return
     elif args.mode == "all":
         agent = AIInterpretAgent()
         agent.run_all_tests()
         # 用 agent.run_date（启动时日期），确保跨午夜时审查和解读读同一目录
-        run_batch_audit_after_interpret(['asset', 'alarm', 'event', 'vuln'], run_date=agent.run_date, agent=agent, model=args.model, server=args.server)
+        run_batch_audit_after_interpret(['asset', 'alarm', 'event', 'vuln'], run_date=agent.run_date, agent=agent, model=args.model, server=args.server, upload_run_id=args.run_id)
         return
     else:
         print(f"❌ 未知模式: {args.mode}")
